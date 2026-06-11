@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.1.1]
+
+### Changed
+- Banner footer is understated — `J.B. Hickok · Deadwood, 1876` instead of
+  spelling out the dead man's hand. The eights on the banner already imply it.
+
 ## [0.1.0]
 
 ### Added

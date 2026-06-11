@@ -91,7 +91,7 @@ class Console:
                    + self._c(DIM, "reverse-shell handler & post-exploitation")
                    + "   " + self._c(DIM, f"v{__version__}"))
         self._emit("    " + self._c(DIM, "gusta-ve · github.com/gusta-ve/hickok · authorized use only"))
-        self._emit("    " + self._c(DIM, "in memory of J.B. Hickok — shot holding aces & eights, Deadwood 1876"))
+        self._emit("    " + self._c(DIM, "J.B. Hickok · Deadwood, 1876"))
         self._emit()
 
     # --------------------------------------------------------------- lines
