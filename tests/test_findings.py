@@ -25,3 +25,19 @@ def test_load_reads_wraith_json(tmp_path):
     p.write_text(json.dumps([{"title": "x", "severity": "Low", "target": "http://t/"}]))
     data = findings.load(str(p))
     assert isinstance(data, list) and data[0]["title"] == "x"
+
+
+def test_latest_picks_most_recent_run(tmp_path):
+    import os
+    base = tmp_path / "wraith-runs"
+    old = base / "a.com-1"; old.mkdir(parents=True)
+    new = base / "b.com-2"; new.mkdir(parents=True)
+    (old / "findings.json").write_text("[]")
+    (new / "findings.json").write_text("[]")
+    os.utime(old / "findings.json", (1000, 1000))
+    os.utime(new / "findings.json", (2000, 2000))   # newer
+    assert findings.latest(str(base)) == str(new / "findings.json")
+
+
+def test_latest_none_when_nothing_there(tmp_path):
+    assert findings.latest(str(tmp_path / "missing")) is None

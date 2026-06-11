@@ -25,6 +25,14 @@ def load(path) -> list[dict]:
     return data
 
 
+def latest(base: str = "wraith-runs") -> str | None:
+    """The most recent wraith findings.json under ./<base>/*/, or None — so
+    `hickok hand` can just pick up the last run without being told where."""
+    paths = sorted(Path(base).glob("*/findings.json"),
+                   key=lambda p: p.stat().st_mtime, reverse=True)
+    return str(paths[0]) if paths else None
+
+
 def is_foothold(title: str) -> bool:
     """True if the finding's title implies code execution — a path to a shell."""
     t = (title or "").lower()

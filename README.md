@@ -29,7 +29,8 @@ The listener is the default command, so a bare `hickok` starts catching shells:
 hickok                                   # listen on :9001, drop into the console
 hickok -l 9001,9002 --lhost 10.10.14.7   # multiple listeners, fixed LHOST
 hickok payloads 10.10.14.7 9001          # print reverse-shell one-liners
-hickok hand wraith-runs/<run>/findings.json   # act on what wraith caught
+hickok hand                              # act on the latest wraith run (./wraith-runs/)
+hickok hand path/to/findings.json        # ...or a specific one
 ```
 
 Inside the console:
@@ -46,12 +47,13 @@ hickok>
 
 ## The bridge — `hickok hand`
 
-Point hickok at a wraith run's `findings.json` and it reads the table: it lists
-what wraith found and flags every finding that means **code execution** (command
-injection, SSTI, …) — those are the doors to a shell.
+Run hickok from where you ran wraith and it picks up the last run on its own — it
+reads the table, lists what wraith found, and flags every finding that means
+**code execution** (command injection, SSTI, …) — those are the doors to a shell.
 
 ```bash
-hickok hand wraith-runs/target.com-<ts>/findings.json
+hickok hand                                     # the latest run under ./wraith-runs/
+hickok hand wraith-runs/target.com-<ts>/findings.json   # ...or a specific one
 ```
 
 ```

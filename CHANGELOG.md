@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.1.2]
+
+### Added
+- `hickok hand` with no argument now picks up the latest run on its own — the
+  most recent `findings.json` under `./wraith-runs/`. Run wraith, then just
+  `hickok hand`. Pass a path to override.
+
 ## [0.1.1]
 
 ### Changed

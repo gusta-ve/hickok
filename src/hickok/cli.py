@@ -78,8 +78,15 @@ def cmd_payloads(args) -> None:
 def cmd_hand(args) -> None:
     c = _console(args)
     c.banner()
+    path = args.file or findings.latest()
+    if not path:
+        c.bad("no findings.json — pass one (`hickok hand <file>`) or run wraith "
+              "first (it writes wraith-runs/<target>/findings.json)")
+        raise SystemExit(1)
+    if not args.file:
+        c.info(f"reading {path}")
     try:
-        items = findings.load(args.file)
+        items = findings.load(path)
     except (OSError, ValueError) as exc:
         c.bad(f"cannot read findings: {exc}")
         raise SystemExit(1)
@@ -140,7 +147,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     hd = sub.add_parser("hand", help="act on a wraith findings.json",
                         formatter_class=_Help, parents=[common])
-    hd.add_argument("file", help="path to a wraith findings.json")
+    hd.add_argument("file", nargs="?",
+                    help="path to a wraith findings.json (default: the latest under ./wraith-runs/)")
     hd.set_defaults(func=cmd_hand)
 
     pl = sub.add_parser("payloads", help="print reverse-shell one-liners",
