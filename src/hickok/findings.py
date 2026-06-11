@@ -8,6 +8,7 @@ is a door to a shell — hickok's whole reason to exist.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 # Finding titles that imply server-side code execution -> a reverse shell.
@@ -25,11 +26,25 @@ def load(path) -> list[dict]:
     return data
 
 
-def latest(base: str = "wraith-runs") -> str | None:
-    """The most recent wraith findings.json under ./<base>/*/, or None — so
-    `hickok hand` can just pick up the last run without being told where."""
-    paths = sorted(Path(base).glob("*/findings.json"),
-                   key=lambda p: p.stat().st_mtime, reverse=True)
+def runs_dir() -> str:
+    """The per-user runs directory wraith writes to by default — the same path
+    wraith computes, so hickok finds runs from any working directory. Override
+    with WRAITH_RUNS; both tools honour it."""
+    env = os.environ.get("WRAITH_RUNS")
+    if env:
+        return os.path.expanduser(env)
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, "wraith", "runs")
+
+
+def latest(base: str | None = None) -> str | None:
+    """The most recent wraith findings.json, or None. Looks in the shared runs
+    dir (XDG / $WRAITH_RUNS) and, as a fallback, ./wraith-runs in the cwd."""
+    where = [base] if base else [runs_dir(), "wraith-runs"]
+    found: set[Path] = set()
+    for d in where:
+        found.update(Path(d).glob("*/findings.json"))
+    paths = sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
     return str(paths[0]) if paths else None
 
 

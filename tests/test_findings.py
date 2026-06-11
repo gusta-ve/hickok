@@ -41,3 +41,11 @@ def test_latest_picks_most_recent_run(tmp_path):
 
 def test_latest_none_when_nothing_there(tmp_path):
     assert findings.latest(str(tmp_path / "missing")) is None
+
+
+def test_runs_dir_honours_env_then_xdg(monkeypatch, tmp_path):
+    monkeypatch.setenv("WRAITH_RUNS", str(tmp_path / "mine"))
+    assert findings.runs_dir() == str(tmp_path / "mine")          # shared with wraith
+    monkeypatch.delenv("WRAITH_RUNS", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    assert findings.runs_dir() == str(tmp_path / "xdg" / "wraith" / "runs")

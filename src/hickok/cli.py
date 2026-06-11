@@ -14,7 +14,7 @@ EXAMPLES = """\
 examples:
   hickok                                 listen on :9001 and drop into the console
   hickok -l 9001,9002 --lhost 10.10.14.7 multiple listeners, fixed LHOST
-  hickok hand wraith-runs/.../findings.json   act on what wraith caught
+  hickok hand                            act on wraith's latest run (found on its own)
   hickok payloads 10.10.14.7 9001        print reverse-shell one-liners
 """
 
@@ -80,8 +80,8 @@ def cmd_hand(args) -> None:
     c.banner()
     path = args.file or findings.latest()
     if not path:
-        c.bad("no findings.json — pass one (`hickok hand <file>`) or run wraith "
-              "first (it writes wraith-runs/<target>/findings.json)")
+        c.bad(f"no wraith run found in {findings.runs_dir()} — run wraith first, "
+              "or pass a findings.json (`hickok hand <file>`)")
         raise SystemExit(1)
     if not args.file:
         c.info(f"reading {path}")
@@ -148,7 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
     hd = sub.add_parser("hand", help="act on a wraith findings.json",
                         formatter_class=_Help, parents=[common])
     hd.add_argument("file", nargs="?",
-                    help="path to a wraith findings.json (default: the latest under ./wraith-runs/)")
+                    help="path to a wraith findings.json (default: wraith's latest run, $WRAITH_RUNS-aware)")
     hd.set_defaults(func=cmd_hand)
 
     pl = sub.add_parser("payloads", help="print reverse-shell one-liners",

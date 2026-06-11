@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.0]
+
+### Changed
+- `hickok hand` now finds wraith's runs by the shared standard location —
+  `~/.local/share/wraith/runs/` (or wherever `WRAITH_RUNS` points), the same
+  path wraith writes to — so it works from any directory, not just where the
+  scan ran. Falls back to `./wraith-runs/` in the cwd.
+
 ## [0.1.3]
 
 ### Changed
