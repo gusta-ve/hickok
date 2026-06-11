@@ -51,9 +51,28 @@ class Console:
         self.theme = THEMES.get(name, THEMES[DEFAULT_THEME])
         self.color = _supports_color(color)
         self.show_banner = banner
+        self._spinning = False   # a working-spinner line is currently drawn (TTY)
 
     def _emit(self, text: str = "") -> None:
+        if self._spinning:           # wipe the spinner line before real output lands
+            sys.stdout.write("\r\033[K")
+            self._spinning = False
         print(text, flush=True)
+
+    def spinner(self, frame: str, label: str) -> None:
+        """Draw one frame of a spinner — a single rewritten line, TTY only,
+        auto-cleared by _emit before any real output. No newline."""
+        if not sys.stdout.isatty():
+            return
+        sys.stdout.write("\r\033[K" + self._accent(frame) + " " + self._c(DIM, label))
+        sys.stdout.flush()
+        self._spinning = True
+
+    def spin_clear(self) -> None:
+        if self._spinning:
+            sys.stdout.write("\r\033[K")
+            sys.stdout.flush()
+            self._spinning = False
 
     def _c(self, code: str, text: str) -> str:
         return f"{code}{text}{RESET}" if self.color else text

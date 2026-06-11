@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 
 from hickok import payloads
 from hickok.session import SessionManager
+
+_SPINNER = "⣾⣽⣻⢿⡿⣟⣯⣷"   # a little block that turns while we wait for a shell
 
 HELP = """commands:
   sessions                 list connected sessions
@@ -51,9 +54,42 @@ class ShellServer:
             self.console.bad("no listeners; aborting")
             return
         self.console.info(f"lhost for payloads: {self.lhost}  (type 'help')")
+        await self._await_first_shell()
         await self._repl()
         for server in self._servers:
             server.close()
+
+    async def _await_first_shell(self) -> None:
+        """Until something connects, turn a spinner instead of leaving a blank
+        screen — a connecting shell or a keypress (Enter for the console) ends it."""
+        if not sys.stdin.isatty():
+            return
+        loop = asyncio.get_event_loop()
+        woke = asyncio.Event()
+
+        def on_key() -> None:
+            try:
+                os.read(sys.stdin.fileno(), 4096)
+            except OSError:
+                pass
+            woke.set()
+
+        loop.add_reader(sys.stdin.fileno(), on_key)
+        ports = ",".join(str(p) for p in self.ports)
+        t0, i = time.monotonic(), 0
+        try:
+            while not woke.is_set() and not self.mgr.all():
+                self.console.spinner(
+                    _SPINNER[i % len(_SPINNER)],
+                    f"waiting for a shell on :{ports} · {int(time.monotonic() - t0)}s  (Enter for console)")
+                i += 1
+                try:
+                    await asyncio.wait_for(woke.wait(), timeout=0.12)
+                except asyncio.TimeoutError:
+                    pass
+        finally:
+            loop.remove_reader(sys.stdin.fileno())
+            self.console.spin_clear()
 
     # ------------------------------------------------------------- REPL
     async def _repl(self) -> None:

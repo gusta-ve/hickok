@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.1.3]
+
+### Changed
+- While waiting for the first reverse shell, hickok turns a spinner
+  (`waiting for a shell on :9001 · 8s`) instead of leaving a blank screen — it
+  clears the moment a shell connects (or press Enter to drop into the console).
+
 ## [0.1.2]
 
 ### Added
