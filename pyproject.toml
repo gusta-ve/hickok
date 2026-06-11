@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hickok"
+version = "0.1.0"
+description = "Reverse-shell handler & post-exploitation console — the eights to wraith's aces."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Gustavo Almeida", email = "gustavoalm09@gmail.com" }]
+keywords = ["security", "pentest", "offensive-security", "post-exploitation", "reverse-shell", "red-team"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+    "Environment :: Console",
+]
+
+# Pure standard library — nothing to install but Python.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.urls]
+Homepage = "https://github.com/gusta-ve/hickok"
+Repository = "https://github.com/gusta-ve/hickok"
+Issues = "https://github.com/gusta-ve/hickok/issues"
+Changelog = "https://github.com/gusta-ve/hickok/blob/main/CHANGELOG.md"
+
+[project.scripts]
+hickok = "hickok.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hickok"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
