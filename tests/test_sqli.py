@@ -1,6 +1,7 @@
 import re
 import sqlite3
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlsplit
 
@@ -89,3 +90,45 @@ def test_union_walks_and_dumps_a_table():
     rows = sqli.union_dump(net, oracle, "sqlite", *setup, "t", cols)
     srv.shutdown()
     assert ["x1", "y1"] in rows and ["x2", "y2"] in rows
+
+
+def _blind_sleep_server():
+    """A totally blind app: same page always, but a true condition can sleep —
+    only time-based works here."""
+    db = sqlite3.connect(":memory:", check_same_thread=False)
+    db.executescript("CREATE TABLE u (id INTEGER); INSERT INTO u VALUES (1);")
+    db.create_function("sleep", 1, lambda n: time.sleep(min(float(n), 2)) or 0)
+    lock = threading.Lock()
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            raw = (parse_qs(urlsplit(self.path).query).get("id") or ["1"])[0]
+            try:
+                with lock:
+                    db.execute(f"SELECT id FROM u WHERE id = '{raw}'").fetchone()
+            except Exception:
+                pass
+            body = b"<h1>ok</h1>"                  # identical no matter what
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_time_based_calibrates_and_answers():
+    srv = _blind_sleep_server()
+    net = http.Http(timeout=10)
+    o = sqli.time_calibrate(net, f"http://127.0.0.1:{srv.server_address[1]}/?id=1", "id", "1", n=1)
+    try:
+        assert o is not None and o.dbms == "sqlite"
+        assert o.ask("1=1") is True        # a true condition sleeps -> over threshold
+        assert o.ask("1=2") is False       # a false one stays fast
+    finally:
+        srv.shutdown()

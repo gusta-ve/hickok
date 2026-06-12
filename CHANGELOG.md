@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.0]
+
+### Added
+- `hickok sql` **time-based** technique — the universal fallback for a fully
+  blind point (same page, no reflection, no error differential): it asks through
+  a conditional sleep and times the response, then extracts exactly like the
+  boolean path. Auto-selection is now union > boolean > time; force with
+  `--technique time`. DBMS-aware sleeps (MySQL/PostgreSQL/MSSQL).
+
 ## [0.6.0]
 
 ### Added
