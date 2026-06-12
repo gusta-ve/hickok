@@ -1,12 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="994" height="341" viewBox="0 0 994 341" font-family="ui-monospace,Menlo,Consolas,monospace">
 <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffcd5f"/><stop offset="1" stop-color="#8a3800"/></linearGradient><linearGradient id="a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe0a6"/><stop offset="1" stop-color="#9a6f38"/></linearGradient></defs>
 <rect width="994" height="341" rx="12" fill="#0b0d10" stroke="#1c2128"/>
-<text x="40" y="113" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██╗  ██╗██╗ ██████╗██╗  ██╗ ██████╗ ██╗  ██╗</text>
-<text x="40" y="139" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██║  ██║██║██╔════╝██║ ██╔╝██╔═══██╗██║ ██╔╝</text>
-<text x="40" y="165" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">███████║██║██║     █████╔╝ ██║   ██║█████╔╝</text>
-<text x="40" y="191" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██╔══██║██║██║     ██╔═██╗ ██║   ██║██╔═██╗</text>
-<text x="40" y="217" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██║  ██║██║╚██████╗██║  ██╗╚██████╔╝██║  ██╗</text>
-<text x="40" y="243" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">╚═╝  ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝</text>
+<text x="40" y="126" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██   ██ ██  ██████ ██   ██  ██████  ██   ██</text>
+<text x="40" y="152" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██   ██ ██ ██      ██  ██  ██    ██ ██  ██</text>
+<text x="40" y="178" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">███████ ██ ██      █████   ██    ██ █████</text>
+<text x="40" y="204" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██   ██ ██ ██      ██  ██  ██    ██ ██  ██</text>
+<text x="40" y="230" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██   ██ ██  ██████ ██   ██  ██████  ██   ██</text>
 <text x="624" y="32.0" font-size="7.0" fill="url(#a)" xml:space="preserve">                            :=----===.   .-==---+=</text>
 <text x="624" y="39.1" font-size="7.0" fill="url(#a)" xml:space="preserve">                            -       -=-=*=       ==</text>
 <text x="624" y="46.2" font-size="7.0" fill="url(#a)" xml:space="preserve">                          :+                      ==</text>
