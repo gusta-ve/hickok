@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.1]
+
+### Added
+- `hickok sql --check-tor` — verify your Tor/proxy is actually anonymising you
+  (and exit), to confirm the setup before a run. `--tor` already verifies
+  inline; this is the standalone dry-run.
+
 ## [0.4.0]
 
 ### Added

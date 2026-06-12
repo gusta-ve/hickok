@@ -139,6 +139,21 @@ def _sqli_target(items):
 def cmd_sql(args) -> None:
     c = _console(args)
     c.banner()
+
+    if args.check_tor:                          # verify anonymity setup and exit
+        try:
+            net = http.Http(proxy=args.proxy, tor=args.tor, timeout=args.timeout)
+        except http.TorError as exc:
+            c.bad(str(exc))
+            raise SystemExit(2)
+        c.info("checking the exit…")
+        if net.check_tor():
+            c.good("confirmed — traffic exits through Tor, you're anonymised")
+        else:
+            c.bad("NOT going through Tor — start the daemon (port 9050) and use "
+                  "--tor, or run via `torsocks`")
+        return
+
     url, param, value = args.url, args.param, args.value
     if not url:                                  # fall back to wraith's latest run
         path = findings.latest()
@@ -326,6 +341,8 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--proxy", metavar="URL", help="http://host:port or socks5h://host:port")
     ev.add_argument("--tor", action="store_true",
                     help="route via Tor (socks5h://127.0.0.1:9050), verified — fails closed")
+    ev.add_argument("--check-tor", action="store_true",
+                    help="just verify Tor/proxy is anonymising you, then exit")
     ev.add_argument("--delay", metavar="SEC", type=float, default=0.0, help="seconds between requests")
     ev.add_argument("--timeout", metavar="SEC", type=float, default=15.0, help="per-request timeout")
     bt = sq.add_argument_group("non-interactive (run one action and exit)")
