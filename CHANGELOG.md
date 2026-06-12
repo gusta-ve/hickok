@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0]
+
+### Added
+- `hickok sql` evasion / OPSEC options: `--random-agent`, `-A/--user-agent`,
+  `-H/--header`, `--cookie` (authenticated injection), `--proxy`, `--delay`,
+  `--timeout`, and `-v` (prints every payload). Non-interactive one-shots
+  `--banner`, `--tables`, `--dump <table>` (the `--batch` equivalent).
+- `--tor` — route through Tor, done safely: **remote DNS** (`socks5h`, no leak)
+  and **verified before any attack traffic, failing closed** if the exit can't be
+  confirmed as Tor. SOCKS needs PySocks (`pip install hickok[tor]`); HTTP
+  `--proxy` is dependency-free, and `torsocks hickok …` needs nothing.
+
 ## [0.3.1]
 
 ### Added

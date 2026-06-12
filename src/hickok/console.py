@@ -46,12 +46,18 @@ def _supports_color(force=None) -> bool:
 
 
 class Console:
-    def __init__(self, theme=None, color=None, banner=True):
+    def __init__(self, theme=None, color=None, banner=True, verbose=0):
         name = theme or os.environ.get("HICKOK_THEME") or DEFAULT_THEME
         self.theme = THEMES.get(name, THEMES[DEFAULT_THEME])
         self.color = _supports_color(color)
         self.show_banner = banner
+        self.verbose = int(verbose or 0)
         self._spinning = False   # a working-spinner line is currently drawn (TTY)
+
+    def trace(self, msg, level: int = 1) -> None:
+        """Verbose-only line (e.g. -v shows each SQLi payload). Silent without -v."""
+        if self.verbose >= level:
+            self._emit(self._c(DIM, "      · ") + str(msg))
 
     def _emit(self, text: str = "") -> None:
         if self._spinning:           # wipe the spinner line before real output lands
