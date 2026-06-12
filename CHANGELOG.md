@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.1]
+
+### Changed
+- Wording: describe the SQL engine on its own terms (no comparisons to other
+  tools).
+
 ## [0.7.0]
 
 ### Added
@@ -60,7 +66,7 @@ based on [Keep a Changelog](https://keepachangelog.com/).
 ## [0.3.0]
 
 ### Added
-- `hickok sql` — a boolean-blind SQL injection engine, a small sqlmap. It
+- `hickok sql` — a boolean-blind SQL injection engine. It
   calibrates a TRUE/FALSE oracle on an injectable parameter, fingerprints the
   DBMS (SQLite / MySQL / MSSQL / PostgreSQL), then reads data out by
   binary-searching each character: an interactive console with `banner`,

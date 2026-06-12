@@ -1,11 +1,16 @@
-"""Boolean-blind SQL injection engine — walk a database through a yes/no oracle.
+"""SQL injection exploitation engine — walk a database through an injectable point.
 
-Given an injectable parameter, hickok calibrates a TRUE/FALSE differential, finds
-the DBMS, then reads anything one bit at a time: it asks the server thousands of
-"is this condition true?" questions and binary-searches each value out. Enough to
-fingerprint, enumerate tables/columns and dump rows — a small sqlmap.
+Given an injectable parameter, hickok calibrates the injection, fingerprints the
+DBMS, and reads the database out with whichever technique fits:
 
-Dependency-free (urllib). Boolean-blind only for now (the most universal case).
+  * union      — output is reflected: read whole values (and whole tables, via
+                 group_concat) in a single request.
+  * boolean    — only the page changes: binary-search each character through a
+                 TRUE/FALSE oracle (error-forcing when a false page barely moves).
+  * time-based — nothing leaks: ask through a conditional sleep and time it.
+
+Enough to fingerprint, enumerate tables/columns and dump rows. Dependency-free
+(urllib).
 """
 
 from __future__ import annotations

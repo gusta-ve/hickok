@@ -48,9 +48,9 @@ hickok>
 
 ## SQL injection — `hickok sql`
 
-Walk a database through SQL injection — a small sqlmap. hickok calibrates the
-injection, fingerprints the DBMS (SQLite / MySQL / MSSQL / PostgreSQL) and picks
-the fastest technique automatically:
+Walk a database through SQL injection — find the way in and read it out. hickok
+calibrates the injection, fingerprints the DBMS (SQLite / MySQL / MSSQL /
+PostgreSQL) and picks the fastest technique automatically:
 
 - **union** — when the page reflects query output, it reads whole values (and
   whole tables, via `group_concat`) in *one* request. A full walk that takes
