@@ -1,52 +1,52 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="500" viewBox="0 0 1060 500" font-family="ui-monospace,Menlo,Consolas,monospace">
+<svg xmlns="http://www.w3.org/2000/svg" width="994" height="341" viewBox="0 0 994 341" font-family="ui-monospace,Menlo,Consolas,monospace">
 <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffcd5f"/><stop offset="1" stop-color="#8a3800"/></linearGradient><linearGradient id="a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe0a6"/><stop offset="1" stop-color="#9a6f38"/></linearGradient></defs>
-<rect width="1060" height="500" rx="12" fill="#0b0d10" stroke="#1c2128"/>
-<text x="40" y="197" font-size="19" font-weight="700" fill="url(#g)" xml:space="preserve">██╗  ██╗██╗ ██████╗██╗  ██╗ ██████╗ ██╗  ██╗</text>
-<text x="40" y="221" font-size="19" font-weight="700" fill="url(#g)" xml:space="preserve">██║  ██║██║██╔════╝██║ ██╔╝██╔═══██╗██║ ██╔╝</text>
-<text x="40" y="245" font-size="19" font-weight="700" fill="url(#g)" xml:space="preserve">███████║██║██║     █████╔╝ ██║   ██║█████╔╝</text>
-<text x="40" y="269" font-size="19" font-weight="700" fill="url(#g)" xml:space="preserve">██╔══██║██║██║     ██╔═██╗ ██║   ██║██╔═██╗</text>
-<text x="40" y="293" font-size="19" font-weight="700" fill="url(#g)" xml:space="preserve">██║  ██║██║╚██████╗██║  ██╗╚██████╔╝██║  ██╗</text>
-<text x="40" y="317" font-size="19" font-weight="700" fill="url(#g)" xml:space="preserve">╚═╝  ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝</text>
-<text x="600" y="64.5" font-size="9.2" fill="url(#a)" xml:space="preserve">                            :=----===.   .-==---+=</text>
-<text x="600" y="74.0" font-size="9.2" fill="url(#a)" xml:space="preserve">                            -       -=-=*=       ==</text>
-<text x="600" y="83.5" font-size="9.2" fill="url(#a)" xml:space="preserve">                          :+                      ==</text>
-<text x="600" y="93.0" font-size="9.2" fill="url(#a)" xml:space="preserve">                          .*                      ==</text>
-<text x="600" y="102.5" font-size="9.2" fill="url(#a)" xml:space="preserve">                          =:                       =:</text>
-<text x="600" y="112.0" font-size="9.2" fill="url(#a)" xml:space="preserve">          :::            :#                        +=            :::</text>
-<text x="600" y="121.5" font-size="9.2" fill="url(#a)" xml:space="preserve">        :-----==:        +:                        -=        :==-----:</text>
-<text x="600" y="130.9" font-size="9.2" fill="url(#a)" xml:space="preserve">       :*      :=*+:     :                          =:    -+=-.      *:</text>
-<text x="600" y="140.4" font-size="9.2" fill="url(#a)" xml:space="preserve">       :+         :--=::      :                :: ::  ::=--:         +:</text>
-<text x="600" y="149.9" font-size="9.2" fill="url(#a)" xml:space="preserve">        :+.           :=:     ::===::::::::-==-::    .=:           .+:</text>
-<text x="600" y="159.4" font-size="9.2" fill="url(#a)" xml:space="preserve">          --.          .-:         .:::::::         .-:          .--</text>
-<text x="600" y="168.9" font-size="9.2" fill="url(#a)" xml:space="preserve">            --:          :-:                      :--         .:--</text>
-<text x="600" y="178.4" font-size="9.2" fill="url(#a)" xml:space="preserve">              :--:.        -+-:                .=+-        :=--:</text>
-<text x="600" y="187.9" font-size="9.2" fill="url(#a)" xml:space="preserve">                 :::+*       .=----:      :-----.       ++--:</text>
-<text x="600" y="197.4" font-size="9.2" fill="url(#a)" xml:space="preserve">                 :=*+:-            :-------            ::+*=:</text>
-<text x="600" y="206.9" font-size="9.2" fill="url(#a)" xml:space="preserve">                 :--+*-   :#=                    -#=   .*#---</text>
-<text x="600" y="216.4" font-size="9.2" fill="url(#a)" xml:space="preserve">                 .=*=: :   =##::-+*-      .+*-:-#%+   ::-=*=:</text>
-<text x="600" y="225.9" font-size="9.2" fill="url(#a)" xml:space="preserve">                 ::-*+-   .: ===++.         =+===:     =#+::</text>
-<text x="600" y="235.4" font-size="9.2" fill="url(#a)" xml:space="preserve">                   +-                                    -+.</text>
-<text x="600" y="244.9" font-size="9.2" fill="url(#a)" xml:space="preserve">                   ::-=: =-                        :=  =+:.</text>
-<text x="600" y="254.4" font-size="9.2" fill="url(#a)" xml:space="preserve">              .:-+=*-.    ==:                    :==    :-+++::</text>
-<text x="600" y="263.9" font-size="9.2" fill="url(#a)" xml:space="preserve">            -+==:.        -=                      +-        ::++++</text>
-<text x="600" y="273.4" font-size="9.2" fill="url(#a)" xml:space="preserve">             ++            -+                    =-             #*</text>
-<text x="600" y="282.9" font-size="9.2" fill="url(#a)" xml:space="preserve">              =#=           .:-----+=-==*.  -:::-.            +#-</text>
-<text x="600" y="292.4" font-size="9.2" fill="url(#a)" xml:space="preserve">               .#+     :*=--=-:::.-- .  *=:+:----====+=:-.   ++</text>
-<text x="600" y="301.9" font-size="9.2" fill="url(#a)" xml:space="preserve">            .--. **    *+  .    -:::::: +=-- =:.:--.. -:-+  +-.--.</text>
-<text x="600" y="311.4" font-size="9.2" fill="url(#a)" xml:space="preserve">        :-===:    +*   -*  :::-----::-- :-+  :-: .:::=- :* :*   :-++-:</text>
-<text x="600" y="320.9" font-size="9.2" fill="url(#a)" xml:space="preserve">     -==-.         =-   #. -.::  ..:.:-  -+ -=--..=-.:- *: :=      .:=++-.</text>
-<text x="600" y="330.4" font-size="9.2" fill="url(#a)" xml:space="preserve">   --:                  == .:.. -.:-:-. .+ .=::::-:::-.-+               -=-</text>
-<text x="600" y="339.9" font-size="9.2" fill="url(#a)" xml:space="preserve">  #:                     #  :.::--: -:  :+  .--:-::--: *:                 :#</text>
-<text x="600" y="349.4" font-size="9.2" fill="url(#a)" xml:space="preserve"> ==                      =-  :: ... :   *  -.:--:  :: :=                   -=</text>
-<text x="600" y="358.9" font-size="9.2" fill="url(#a)" xml:space="preserve"> *                       =%--=: . .::   *  :   :==-==.*:                    *.</text>
-<text x="600" y="368.4" font-size="9.2" fill="url(#a)" xml:space="preserve">*.                   .====    :-=+.    +: :  =+--   -=*+-                   .#</text>
-<text x="600" y="377.9" font-size="9.2" fill="url(#a)" xml:space="preserve">-                  -==-    -=-   .==  :*   :+   .==:   :++=                  -</text>
-<text x="600" y="387.4" font-size="9.2" fill="url(#a)" xml:space="preserve">                 .*+.  :=+#++=-+*-.   -#     :===++*#+:   +*:</text>
-<text x="600" y="396.9" font-size="9.2" fill="url(#a)" xml:space="preserve">                .+-  .-=-       -: =#= -=-+=:=.      -=+-  -#:</text>
-<text x="600" y="406.4" font-size="9.2" fill="url(#a)" xml:space="preserve">                ==       .-=*=-+*:           .==-=+-:   :   =+</text>
-<text x="600" y="415.9" font-size="9.2" fill="url(#a)" xml:space="preserve">               -+      -+:      -=           :=     :==      +=</text>
-<text x="600" y="425.4" font-size="9.2" fill="url(#a)" xml:space="preserve">              :+:        .-=*=-=-             =--++-:        :+:</text>
-<text x="600" y="434.9" font-size="9.2" fill="url(#a)" xml:space="preserve">              ::         -:    -+            :*    .-         ::</text>
-<text x="600" y="444.4" font-size="9.2" fill="url(#a)" xml:space="preserve">                            -==-               ==-</text>
-<text x="40" y="472" font-size="13" fill="#8b949e" xml:space="preserve">reverse-shell handler &amp; post-exploitation · gusta-ve</text>
+<rect width="994" height="341" rx="12" fill="#0b0d10" stroke="#1c2128"/>
+<text x="40" y="113" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██╗  ██╗██╗ ██████╗██╗  ██╗ ██████╗ ██╗  ██╗</text>
+<text x="40" y="139" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██║  ██║██║██╔════╝██║ ██╔╝██╔═══██╗██║ ██╔╝</text>
+<text x="40" y="165" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">███████║██║██║     █████╔╝ ██║   ██║█████╔╝</text>
+<text x="40" y="191" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██╔══██║██║██║     ██╔═██╗ ██║   ██║██╔═██╗</text>
+<text x="40" y="217" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">██║  ██║██║╚██████╗██║  ██╗╚██████╔╝██║  ██╗</text>
+<text x="40" y="243" font-size="21" font-weight="700" fill="url(#g)" xml:space="preserve">╚═╝  ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝</text>
+<text x="624" y="32.0" font-size="7.0" fill="url(#a)" xml:space="preserve">                            :=----===.   .-==---+=</text>
+<text x="624" y="39.1" font-size="7.0" fill="url(#a)" xml:space="preserve">                            -       -=-=*=       ==</text>
+<text x="624" y="46.2" font-size="7.0" fill="url(#a)" xml:space="preserve">                          :+                      ==</text>
+<text x="624" y="53.3" font-size="7.0" fill="url(#a)" xml:space="preserve">                          .*                      ==</text>
+<text x="624" y="60.4" font-size="7.0" fill="url(#a)" xml:space="preserve">                          =:                       =:</text>
+<text x="624" y="67.5" font-size="7.0" fill="url(#a)" xml:space="preserve">          :::            :#                        +=            :::</text>
+<text x="624" y="74.6" font-size="7.0" fill="url(#a)" xml:space="preserve">        :-----==:        +:                        -=        :==-----:</text>
+<text x="624" y="81.7" font-size="7.0" fill="url(#a)" xml:space="preserve">       :*      :=*+:     :                          =:    -+=-.      *:</text>
+<text x="624" y="88.8" font-size="7.0" fill="url(#a)" xml:space="preserve">       :+         :--=::      :                :: ::  ::=--:         +:</text>
+<text x="624" y="95.9" font-size="7.0" fill="url(#a)" xml:space="preserve">        :+.           :=:     ::===::::::::-==-::    .=:           .+:</text>
+<text x="624" y="103.0" font-size="7.0" fill="url(#a)" xml:space="preserve">          --.          .-:         .:::::::         .-:          .--</text>
+<text x="624" y="110.1" font-size="7.0" fill="url(#a)" xml:space="preserve">            --:          :-:                      :--         .:--</text>
+<text x="624" y="117.2" font-size="7.0" fill="url(#a)" xml:space="preserve">              :--:.        -+-:                .=+-        :=--:</text>
+<text x="624" y="124.3" font-size="7.0" fill="url(#a)" xml:space="preserve">                 :::+*       .=----:      :-----.       ++--:</text>
+<text x="624" y="131.4" font-size="7.0" fill="url(#a)" xml:space="preserve">                 :=*+:-            :-------            ::+*=:</text>
+<text x="624" y="138.5" font-size="7.0" fill="url(#a)" xml:space="preserve">                 :--+*-   :#=                    -#=   .*#---</text>
+<text x="624" y="145.6" font-size="7.0" fill="url(#a)" xml:space="preserve">                 .=*=: :   =##::-+*-      .+*-:-#%+   ::-=*=:</text>
+<text x="624" y="152.7" font-size="7.0" fill="url(#a)" xml:space="preserve">                 ::-*+-   .: ===++.         =+===:     =#+::</text>
+<text x="624" y="159.8" font-size="7.0" fill="url(#a)" xml:space="preserve">                   +-                                    -+.</text>
+<text x="624" y="166.9" font-size="7.0" fill="url(#a)" xml:space="preserve">                   ::-=: =-                        :=  =+:.</text>
+<text x="624" y="174.0" font-size="7.0" fill="url(#a)" xml:space="preserve">              .:-+=*-.    ==:                    :==    :-+++::</text>
+<text x="624" y="181.1" font-size="7.0" fill="url(#a)" xml:space="preserve">            -+==:.        -=                      +-        ::++++</text>
+<text x="624" y="188.2" font-size="7.0" fill="url(#a)" xml:space="preserve">             ++            -+                    =-             #*</text>
+<text x="624" y="195.2" font-size="7.0" fill="url(#a)" xml:space="preserve">              =#=           .:-----+=-==*.  -:::-.            +#-</text>
+<text x="624" y="202.3" font-size="7.0" fill="url(#a)" xml:space="preserve">               .#+     :*=--=-:::.-- .  *=:+:----====+=:-.   ++</text>
+<text x="624" y="209.5" font-size="7.0" fill="url(#a)" xml:space="preserve">            .--. **    *+  .    -:::::: +=-- =:.:--.. -:-+  +-.--.</text>
+<text x="624" y="216.6" font-size="7.0" fill="url(#a)" xml:space="preserve">        :-===:    +*   -*  :::-----::-- :-+  :-: .:::=- :* :*   :-++-:</text>
+<text x="624" y="223.7" font-size="7.0" fill="url(#a)" xml:space="preserve">     -==-.         =-   #. -.::  ..:.:-  -+ -=--..=-.:- *: :=      .:=++-.</text>
+<text x="624" y="230.8" font-size="7.0" fill="url(#a)" xml:space="preserve">   --:                  == .:.. -.:-:-. .+ .=::::-:::-.-+               -=-</text>
+<text x="624" y="237.8" font-size="7.0" fill="url(#a)" xml:space="preserve">  #:                     #  :.::--: -:  :+  .--:-::--: *:                 :#</text>
+<text x="624" y="245.0" font-size="7.0" fill="url(#a)" xml:space="preserve"> ==                      =-  :: ... :   *  -.:--:  :: :=                   -=</text>
+<text x="624" y="252.1" font-size="7.0" fill="url(#a)" xml:space="preserve"> *                       =%--=: . .::   *  :   :==-==.*:                    *.</text>
+<text x="624" y="259.1" font-size="7.0" fill="url(#a)" xml:space="preserve">*.                   .====    :-=+.    +: :  =+--   -=*+-                   .#</text>
+<text x="624" y="266.2" font-size="7.0" fill="url(#a)" xml:space="preserve">-                  -==-    -=-   .==  :*   :+   .==:   :++=                  -</text>
+<text x="624" y="273.4" font-size="7.0" fill="url(#a)" xml:space="preserve">                 .*+.  :=+#++=-+*-.   -#     :===++*#+:   +*:</text>
+<text x="624" y="280.5" font-size="7.0" fill="url(#a)" xml:space="preserve">                .+-  .-=-       -: =#= -=-+=:=.      -=+-  -#:</text>
+<text x="624" y="287.6" font-size="7.0" fill="url(#a)" xml:space="preserve">                ==       .-=*=-+*:           .==-=+-:   :   =+</text>
+<text x="624" y="294.6" font-size="7.0" fill="url(#a)" xml:space="preserve">               -+      -+:      -=           :=     :==      +=</text>
+<text x="624" y="301.8" font-size="7.0" fill="url(#a)" xml:space="preserve">              :+:        .-=*=-=-             =--++-:        :+:</text>
+<text x="624" y="308.9" font-size="7.0" fill="url(#a)" xml:space="preserve">              ::         -:    -+            :*    .-         ::</text>
+<text x="624" y="316.0" font-size="7.0" fill="url(#a)" xml:space="preserve">                            -==-               ==-</text>
+<text x="40" y="313" font-size="13" fill="#8b949e" xml:space="preserve">reverse-shell handler &amp; post-exploitation · gusta-ve</text>
 </svg>

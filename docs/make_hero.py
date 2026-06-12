@@ -22,16 +22,16 @@ WORDMARK = [
 TAGLINE = "reverse-shell handler & post-exploitation · gusta-ve"
 
 # ---- layout -----------------------------------------------------------------
-W, H = 1060, 500
+W, H = 994, 341                         # match wraith's hero proportions
 RAMP = " .:-=+*#%@"
 
 # wordmark: left column, vertically centred
-WM_X, WM_FS, WM_LH = 40, 19, 24
+WM_X, WM_FS, WM_LH = 40, 21, 26         # same weight as wraith
 WM_Y0 = (H - len(WORDMARK) * WM_LH) // 2 + WM_FS
 
-# art: right column
-ART_FS, ART_LH = 9.2, 9.5
-ART_X = 600
+# art: right column — 41 rows squeezed into the same band as wraith's spectre
+ART_FS, ART_LH = 7.0, 7.1
+ART_X = 624
 ART_Y0 = (H - len(ART) * ART_LH) / 2 + ART_FS
 
 
