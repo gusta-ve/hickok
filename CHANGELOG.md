@@ -3,6 +3,33 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.3]
+
+### Added
+- **Showdown mode** — `hickok showdown` toggles a mode that sticks between runs.
+  While on, the moment a reverse shell lands the listener plays the catch out: the
+  gunslinger rises, lays down the dead man's hand, and calls it. The reward is for
+  landing a shell; plain runs and a plain listener stay quiet.
+
+- `hickok sql` now turns a live heartbeat — with the running request count —
+  through every blocking step (calibration, fingerprint, UNION probe, and the
+  blind walk). It ticks on its own timer, so even a slow remote keeps spinning
+  instead of looking frozen between requests.
+
+### Changed
+- The dead man's hand in `hickok hand` is centred under the gunslinger.
+- `hickok sql` extraction is incremental and interruptible: tables/columns print
+  as they're pulled, and Ctrl-C mid-walk keeps what was gathered, prints what it
+  has, and drops back to the console instead of throwing it all away.
+
+### Fixed
+- `hickok sql` no longer crashes with `chr() arg not in range` on a noisy/
+  unreliable oracle (a flaky real-world target): out-of-range character codes
+  are bounds-checked and become `?` instead of taking down the whole walk.
+- While the spinner turns through a long walk, the terminal stops echoing
+  keystrokes and drops buffered input — so typing or pasting mid-extraction can
+  no longer get stuck on the spinner line or leak a stray command afterwards.
+
 ## [0.7.2]
 
 ### Added

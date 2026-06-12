@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import os
 import re
 import sys
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from hickok import __version__, findings, http, payloads, sqli
 from hickok.console import DIM, THEMES, Console
 from hickok.handler import ShellServer
+from hickok.showdown import Showdown
 
 EXAMPLES = """\
 examples:
@@ -20,7 +24,25 @@ examples:
   hickok payloads 10.10.14.7 9001        print reverse-shell one-liners
 """
 
-_COMMANDS = {"listen", "hand", "call", "payloads", "eights", "sql"}
+_COMMANDS = {"listen", "hand", "call", "showdown", "payloads", "eights", "sql"}
+
+# `hickok showdown` flips a mode that sticks between runs, so it's persisted here.
+_CONFIG_PATH = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "hickok" / "config.json"
+
+
+def _load_config() -> dict:
+    try:
+        return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_config(cfg: dict) -> None:
+    try:
+        _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    except OSError:
+        pass
 
 
 class _Help(argparse.RawDescriptionHelpFormatter):
@@ -49,12 +71,15 @@ def _with_default_command(argv):
 
 
 def _console(args) -> Console:
-    return Console(
+    c = Console(
         theme=getattr(args, "theme", None),
         color=False if getattr(args, "no_color", False) else None,
         banner=not getattr(args, "no_banner", False),
         verbose=getattr(args, "verbose", 0),
     )
+    if _load_config().get("showdown"):       # mode on → wire it to the console
+        c.showdown = Showdown(c)
+    return c
 
 
 def cmd_listen(args) -> None:
@@ -106,8 +131,6 @@ def cmd_call(args) -> None:
         mark = c._accent("  ⮕ shell") if findings.is_foothold(title) else ""
         c.plain(f"  [{sev}] {title}  {c._c(DIM, target)}{mark}")
 
-    c.dead_mans_hand(dealt_by_wraith=True)
-
     foot = findings.footholds(items)
     if foot:
         c.good(f"{len(foot)} foothold(s) — code execution. catch a shell off one:")
@@ -116,6 +139,23 @@ def cmd_call(args) -> None:
             c.plain(f"      → {f.get('target', '')}")
     else:
         c.warn("no code-execution foothold here — these are leads, not a shell (yet)")
+
+
+def cmd_showdown(args) -> None:
+    """Toggle showdown mode on/off — it sticks between runs. While on, the moment
+    a reverse shell lands hickok plays the catch out: the gunslinger, the dead
+    man's hand, the call."""
+    c = _console(args)
+    cfg = _load_config()
+    cfg["showdown"] = not cfg.get("showdown", False)
+    _save_config(cfg)
+    if cfg["showdown"]:
+        if c.show_banner:
+            c.hand()
+        c.good("showdown mode ON — landing a shell now plays the catch out "
+               "(run `hickok showdown` again to turn off)")
+    else:
+        c.info("showdown mode OFF — hickok runs plain again")
 
 
 def cmd_eights(args) -> None:
@@ -213,13 +253,16 @@ def cmd_sql(args) -> None:
     oracle, union = None, None
     if args.technique != "time":
         c.info("calibrating boolean-blind oracle…")
-        oracle = sqli.calibrate(net, url, param, value, console=c)
+        with c.working("calibrating the oracle", lambda: net.count):
+            oracle = sqli.calibrate(net, url, param, value, console=c)
 
     if oracle is not None:
         c.good(f"injectable — {oracle.context} context")
-        dbms = sqli.fingerprint(oracle)
+        with c.working("fingerprinting the DBMS", lambda: net.count):
+            dbms = sqli.fingerprint(oracle)
         if args.technique in ("auto", "union"):
-            setup = sqli.union_setup(net, oracle)
+            with c.working("probing for a UNION", lambda: net.count):
+                setup = sqli.union_setup(net, oracle)
             if setup:
                 union = (dbms, *setup)
                 c.good(f"union-based — {setup[0]} columns, output reflected (fast)")
@@ -230,7 +273,8 @@ def cmd_sql(args) -> None:
             c.info("boolean-blind extraction (a request per bit — slower)")
     elif args.technique in ("auto", "time"):
         c.info("no boolean differential — calibrating time-based oracle…")
-        oracle = sqli.time_calibrate(net, url, param, value, console=c)
+        with c.working("calibrating time-based", lambda: net.count):
+            oracle = sqli.time_calibrate(net, url, param, value, console=c)
         if oracle is None:
             c.bad("no injection found here (boolean, union, or time)")
             raise SystemExit(1)
@@ -245,12 +289,18 @@ def cmd_sql(args) -> None:
 
     # Non-interactive (batch) one-shots, else the interactive console.
     if args.banner:
-        c.good(_walk_banner(oracle, prof, union))
+        with c.working("reading the banner", lambda: oracle.count):
+            out = _walk_banner(oracle, prof, union)
+        c.good(out)
     elif args.tables:
-        for t in _walk_tables(oracle, prof, union):
+        with c.working("listing tables", lambda: oracle.count):
+            tbls = list(_walk_tables(oracle, prof, union))   # extract inside the spinner
+        for t in tbls:
             c.plain(f"  {t}")
     elif args.dump:
-        cols, rows = _walk_dump(oracle, prof, union, args.dump)
+        with c.working(f"dumping {args.dump}", lambda: oracle.count):
+            cols, rows = _walk_dump(oracle, prof, union, args.dump)
+            rows = list(rows)                                # extract inside the spinner
         _print_table(c, cols, rows)
     else:
         _sql_repl(c, oracle, prof, union)
@@ -282,11 +332,11 @@ def _walk_columns(oracle, prof, union, table):
 
 
 def _walk_dump(oracle, prof, union, table):
-    cols = _walk_columns(oracle, prof, union, table)
+    cols = list(_walk_columns(oracle, prof, union, table))   # full list — reused per row
     if union:
         rows = sqli.union_dump(oracle.http, oracle, *union, table, cols)
     else:
-        rows = sqli.dump(oracle, prof, table, cols)
+        rows = sqli.dump(oracle, prof, table, cols)          # a generator (lazy rows)
     return cols, rows
 
 
@@ -312,6 +362,8 @@ def _sql_repl(c, oracle, prof, union) -> None:
         cmd, _, arg = line.partition(" ")
         cmd, arg = cmd.lower(), arg.strip()
         before = oracle.count
+        spin = c.working("working the database", lambda: oracle.count)
+        spin.__enter__()                         # heartbeat during the walk (not the prompt)
         try:
             if cmd in ("exit", "quit"):
                 break
@@ -337,8 +389,13 @@ def _sql_repl(c, oracle, prof, union) -> None:
                 if not arg:
                     c.warn("usage: dump <table>")
                     continue
-                cols, rows = _walk_dump(oracle, prof, union, arg)
-                _print_table(c, cols, rows)
+                cols, rowgen = _walk_dump(oracle, prof, union, arg)
+                rows = []
+                try:
+                    for r in rowgen:
+                        rows.append(r)
+                finally:
+                    _print_table(c, cols, rows)   # show whatever we pulled, even on interrupt
             elif cmd == "query":
                 if not arg:
                     c.warn('usage: query "<SELECT returning one value>"')
@@ -348,8 +405,12 @@ def _sql_repl(c, oracle, prof, union) -> None:
                 c.good(_walk_scalar(oracle, prof, union, arg))
             else:
                 c.warn(f"unknown command: {cmd} (type 'help')")
+        except KeyboardInterrupt:
+            c.warn("interrupted — keeping what was pulled so far")
         except Exception as exc:
             c.bad(f"error: {exc}")
+        finally:
+            spin.__exit__(None, None, None)
         c.plain(c._c(DIM, f"      {oracle.count - before} requests · {oracle.count} total"))
 
 
@@ -394,6 +455,12 @@ def build_parser() -> argparse.ArgumentParser:
     hd = sub.add_parser("hand", help="lay down the dead man's hand",
                         formatter_class=_Help, parents=[common])
     hd.set_defaults(func=cmd_hand)
+
+    sd = sub.add_parser("showdown", help="toggle showdown mode on/off (sticks between runs)",
+                        formatter_class=_Help, parents=[common],
+                        description="Toggle showdown mode. While it's on, `hickok call` plays the "
+                                    "catch out: the gunslinger, the dead man's hand, the verdict.")
+    sd.set_defaults(func=cmd_showdown)
 
     sq = sub.add_parser("sql", help="walk a SQL-injectable parameter (boolean-blind)",
                         formatter_class=_Help, parents=[common])

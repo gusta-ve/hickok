@@ -37,6 +37,7 @@ hickok call                              # act on wraith's latest run (found on 
 hickok call path/to/findings.json        # ...or a specific one
 hickok sql -u 'http://host/p?id=1' -p id # walk a SQL-injectable parameter
 hickok hand                              # lay down the dead man's hand (the reveal)
+hickok showdown                          # toggle "showdown mode" — a landed shell plays out
 ```
 
 Inside the console:
@@ -141,6 +142,14 @@ hickok call path/to/findings.json    # ...or a specific one
 ```
 
 wraith deals the aces; hickok brings the eights. The hand is complete.
+
+## Showdown mode — `hickok showdown`
+
+`hickok showdown` toggles a mode that sticks between runs. While it's on, the
+moment a reverse shell lands the listener plays the catch out: the gunslinger
+rises, lays down the dead man's hand, and calls it — *the house folds.* The reward
+is for actually getting in; plain runs and a plain listener stay quiet. Run
+`hickok showdown` again to turn it off.
 
 ## Disclaimer
 

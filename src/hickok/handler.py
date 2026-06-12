@@ -31,12 +31,17 @@ class ShellServer:
         self.console = console
         self.mgr = SessionManager()
         self._servers: list[asyncio.AbstractServer] = []
+        self._revealed = False
 
     async def _on_conn(self, reader, writer) -> None:
         sess = self.mgr.add(reader, writer)
         sess.start()
         host, port = sess.peer[0], sess.peer[1]
         self.console.good(f"session {sess.id} opened — {host}:{port}")
+        # showdown mode: the first shell to land is the payoff — play it out.
+        if self.console.showdown and not self._revealed:
+            self._revealed = True
+            self.console.showdown.shell()
 
     async def _start_listeners(self) -> None:
         for port in self.ports:

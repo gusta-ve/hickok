@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from hickok import __version__
 
 _ART_DIR = Path(__file__).resolve().parent / "art"
 _RAMP = " .:-=+*#%@"
+_HSPIN = "⣾⣽⣻⢿⡿⣟⣯⣷"   # a turning block for the live "working" heartbeat
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -67,6 +69,7 @@ class Console:
         self.show_banner = banner
         self.verbose = int(verbose or 0)
         self._spinning = False   # a working-spinner line is currently drawn (TTY)
+        self.showdown = None     # a Showdown (see showdown.py) when the mode is on
 
     def trace(self, msg, level: int = 1) -> None:
         """Verbose-only line (e.g. -v shows each SQLi payload). Silent without -v."""
@@ -93,6 +96,13 @@ class Console:
             sys.stdout.write("\r\033[K")
             sys.stdout.flush()
             self._spinning = False
+
+    def working(self, label: str, count_fn=None):
+        """A live heartbeat for a blocking call: a spinner that turns on its own
+        timer (not per request), so even a slow remote looks alive. Use it as a
+        context manager around the blocking work; it clears itself on exit. No-op
+        off a TTY or at -v 2+, where every payload is already traced."""
+        return _Working(self, label, count_fn)
 
     def _c(self, code: str, text: str) -> str:
         return f"{code}{text}{RESET}" if self.color else text
@@ -137,6 +147,9 @@ class Console:
                    + "   " + self._c(DIM, f"v{__version__}"))
         self._emit("  " + self._c(DIM, "gusta-ve · github.com/gusta-ve/hickok · authorized use only"))
         self._emit("  " + self._c(DIM, "J.B. Hickok · Deadwood, 1876"))
+        if self.showdown:
+            self._emit("  " + self._accent("◆ ") + self._c(BOLD, "showdown mode")
+                       + self._c(DIM, " — hickok plays the catch out"))
         self._emit()
 
     # --------------------------------------------------------------- lines
@@ -171,17 +184,19 @@ class Console:
         self._emit("        " + self._c(DIM, "…and Hickok was holding the eights."))
         self._emit()
 
-    def dead_mans_hand(self, dealt_by_wraith: bool = False) -> None:
+    def dead_mans_hand(self, dealt_by_wraith: bool = False, indent: str = "    ") -> None:
         """The full hand laid down — aces and eights. When the aces came from a
-        wraith findings file, the catch is acknowledged."""
+        wraith findings file, the catch is acknowledged. ``indent`` shifts the
+        whole spread (the reveal centres it under the gunslinger)."""
+        cap = indent + "  "
         self._emit()
-        self._cards([("A", "♠"), ("A", "♣"), ("8", "♠"), ("8", "♣"), None])
+        self._cards([("A", "♠"), ("A", "♣"), ("8", "♠"), ("8", "♣"), None], indent=indent)
         self._emit()
-        self._emit("      " + self._c(BOLD, "aces and eights — the dead man's hand."))
-        self._emit("      " + self._c(DIM, "the fifth card stayed face down — nobody knows what Bill held."))
+        self._emit(cap + self._c(BOLD, "aces and eights — the dead man's hand."))
+        self._emit(cap + self._c(DIM, "the fifth card stayed face down — nobody knows what Bill held."))
         if dealt_by_wraith:
-            self._emit("      " + self._c(DIM, "the wraith dealt the aces; Hickok brought the eights."))
-        self._emit("      " + self._c(DIM, "J.B. Hickok, Deadwood 1876.  the house always collects."))
+            self._emit(cap + self._c(DIM, "the wraith dealt the aces; Hickok brought the eights."))
+        self._emit(cap + self._c(DIM, "J.B. Hickok, Deadwood 1876.  the house always collects."))
         self._emit()
 
     # ------------------------------------------------------- the gunslinger
@@ -224,7 +239,73 @@ class Console:
                 time.sleep(0.03)               # the draw
 
     def hand(self) -> None:
-        """The signature reveal — the gunslinger rises, then lays down the hand."""
+        """The signature reveal — the gunslinger rises, then lays down the hand,
+        the five-card spread centred under the art."""
+        block = 5 * 9 + 4 * 3                          # five 9-wide cards, 3-space gaps
+        pad = max(0, (2 + 78 - block) // 2)            # centre under the 78-wide art (indent 2)
         self._emit()
         self._gunslinger()
-        self.dead_mans_hand()
+        self.dead_mans_hand(indent=" " * pad)
+
+
+class _Working:
+    """Background heartbeat for a blocking call (see Console.working).
+
+    While it turns, the terminal stops echoing keystrokes and drops buffered
+    input — so typing or pasting during a long blind walk can't corrupt the
+    spinner line or leak a stray command into the next prompt."""
+
+    def __init__(self, console, label, count_fn):
+        self.c, self.label, self.count_fn = console, label, count_fn
+        self._stop = None
+        self._thread = None
+        self._tty = None      # (fd, saved termios) while we hold the terminal quiet
+
+    def __enter__(self):
+        if not sys.stdout.isatty() or self.c.verbose >= 2:
+            return self
+        self._hush_input()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return self
+
+    def _hush_input(self) -> None:
+        try:
+            import termios
+            fd = sys.stdin.fileno()
+            saved = termios.tcgetattr(fd)
+            quiet = termios.tcgetattr(fd)
+            quiet[3] &= ~(termios.ECHO | termios.ICANON)   # no echo, no line buffering
+            termios.tcsetattr(fd, termios.TCSANOW, quiet)
+            termios.tcflush(fd, termios.TCIFLUSH)          # drop anything already typed
+            self._tty = (fd, saved)
+        except Exception:
+            self._tty = None
+
+    def _restore_input(self) -> None:
+        if self._tty:
+            try:
+                import termios
+                fd, saved = self._tty
+                termios.tcflush(fd, termios.TCIFLUSH)       # discard whatever was typed during
+                termios.tcsetattr(fd, termios.TCSANOW, saved)
+            except Exception:
+                pass
+            self._tty = None
+
+    def _run(self) -> None:
+        i = 0
+        while not self._stop.wait(0.1):
+            n = self.count_fn() if self.count_fn else None
+            label = f"{self.label} · {n} requests" if n is not None else self.label
+            self.c.spinner(_HSPIN[i % len(_HSPIN)], label)
+            i += 1
+
+    def __exit__(self, *exc):
+        if self._thread is not None:
+            self._stop.set()
+            self._thread.join(timeout=0.3)
+            self.c.spin_clear()
+        self._restore_input()
+        return False
