@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.0]
+
+### Added
+- `hickok sql` now does **union-based** injection: when the page reflects query
+  output it finds the column count and a reflected column, then reads whole
+  values — and whole tables via `group_concat` — in *one* request instead of
+  binary-searching each bit. A walk that took ~1000 blind requests is ~16.
+  Technique auto-selects (union if reflected, else boolean-blind); force it with
+  `--technique union|blind`.
+
 ## [0.5.0]
 
 ### Changed

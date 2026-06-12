@@ -48,9 +48,17 @@ hickok>
 
 ## SQL injection — `hickok sql`
 
-Walk a database through a boolean-blind injection — a small sqlmap. hickok
-calibrates a TRUE/FALSE oracle, fingerprints the DBMS (SQLite / MySQL / MSSQL /
-PostgreSQL), then reads anything out one bit at a time:
+Walk a database through SQL injection — a small sqlmap. hickok calibrates the
+injection, fingerprints the DBMS (SQLite / MySQL / MSSQL / PostgreSQL) and picks
+the fastest technique automatically:
+
+- **union** — when the page reflects query output, it reads whole values (and
+  whole tables, via `group_concat`) in *one* request. A full walk that takes
+  ~1000 blind requests is a handful here.
+- **boolean-blind** — otherwise, it binary-searches each character through a
+  TRUE/FALSE oracle (error-forcing when a false page barely changes).
+
+Force one with `--technique union|blind` (default `auto`).
 
 ```bash
 hickok sql -u 'http://host/db?id=1' -p id   # or just `hickok sql` to read it

