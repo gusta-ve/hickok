@@ -86,12 +86,13 @@ hickok sql -u '...' -p id \
   --dump users                     # non-interactive: run one action and exit
 ```
 
-`--tor` is **fail-closed and leak-aware**: it uses `socks5h` so the target
-hostname is resolved by Tor (no DNS leak to your resolver), and it **verifies the
-exit is a Tor node before sending any attack traffic** — if it can't confirm,
-hickok aborts rather than deanonymising you. SOCKS needs PySocks
-(`pip install hickok[tor]`); for a zero-dependency route, run the whole process
-with `torsocks hickok sql …`. `--proxy http://host:port` works with no extras.
+`--tor` is **zero-dependency, leak-aware and fail-closed**: hickok speaks SOCKS5
+itself (stdlib), auto-detects the Tor port (9050 / 9150), resolves the target
+hostname **through Tor** (no DNS leak), and **verifies the exit is a Tor node
+before sending any attack traffic** — if it can't confirm, it aborts rather than
+deanonymising you. You only need Tor running (`sudo systemctl start tor`). Check
+your setup first with `hickok sql --check-tor --tor`. `--proxy http://host:port`
+and `--proxy socks5://host:port` work too.
 
 ## The bridge — `hickok hand`
 

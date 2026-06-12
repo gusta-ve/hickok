@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.0]
+
+### Changed
+- `--tor` / SOCKS is now **dependency-free** — hickok speaks SOCKS5 itself
+  (stdlib), so no PySocks and no torsocks needed. It auto-detects the Tor port
+  (9050 / 9150), resolves the target through Tor (no DNS leak), verifies the exit
+  and fails closed. Just have Tor running. (The `hickok[tor]` extra is gone.)
+
 ## [0.4.1]
 
 ### Added

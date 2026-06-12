@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hickok"
-version = "0.4.1"
+version = "0.5.0"
 description = "Reverse-shell handler & post-exploitation console — the eights to wraith's aces."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,7 +21,6 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-tor = ["PySocks>=1.7"]   # SOCKS/Tor for `hickok sql --tor`; or just use `torsocks`
 dev = ["pytest>=8.0"]
 
 [project.urls]
