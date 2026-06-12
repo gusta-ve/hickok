@@ -89,7 +89,13 @@ hickok(sql)> dump users
 ```
 
 Boolean-blind is slow by nature (each character is binary-searched over many
-requests) — it prints the request count as it goes.
+requests) — it turns a live heartbeat with the running count as it goes, and
+**Ctrl-C keeps what it pulled** and drops back to the console.
+
+Every value is **cached per target** as it's extracted, so you never pay for it
+twice: re-run and anything pulled before comes back instantly (zero requests),
+and a walk you interrupted resumes exactly where it stopped. `--fresh` ignores
+the cache and re-extracts.
 
 **Evasion / OPSEC:**
 

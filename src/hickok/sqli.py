@@ -119,6 +119,7 @@ class Oracle:
         self.template, self.context = template, context
         self._true, self._false = true_text, false_text
         self.console = console
+        self.cache = None        # a sqlcache.Cache once a walk starts (resume/skip)
 
     @property
     def count(self):
@@ -168,6 +169,7 @@ class TimeOracle:
         self.context = f"{dbms}/time"
         self.console = console
         self.template = _SLEEP[dbms]
+        self.cache = None        # a sqlcache.Cache once a walk starts (resume/skip)
 
     @property
     def count(self):
@@ -225,7 +227,16 @@ def fingerprint(oracle) -> str:
 
 
 def extract_int(oracle, expr, cap=1 << 21) -> int:
-    """The integer value of a SQL expression, by binary search on `>`/`>=`."""
+    """The integer value of a SQL expression, by binary search on `>`/`>=`.
+
+    If the oracle carries a cache, a value pulled in a previous run (or before a
+    Ctrl-C) is returned straight from it — zero requests — and every freshly
+    extracted value is written back, so a walk always resumes where it stopped."""
+    cache = getattr(oracle, "cache", None)
+    if cache is not None:
+        hit = cache.get(expr)
+        if hit is not None:
+            return hit
     hi = 1
     while hi < cap and oracle.ask(f"({expr}) > {hi}"):
         hi <<= 1
@@ -236,6 +247,8 @@ def extract_int(oracle, expr, cap=1 << 21) -> int:
             lo = mid
         else:
             hi = mid - 1
+    if cache is not None:
+        cache.put(expr, lo)
     return lo
 
 

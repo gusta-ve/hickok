@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.4]
+
+### Added
+- `hickok sql` caches every value it extracts, per target. A boolean/time-blind
+  walk costs many requests per value; with the cache, re-running returns anything
+  pulled before **instantly (zero requests)**, and a walk interrupted with Ctrl-C
+  resumes exactly where it stopped — each value is written the moment it's found
+  (an append-only per-target log under `~/.local/share/hickok/sql/`). Use
+  `--fresh` to ignore the cache and re-extract from scratch.
+
+### Changed
+- The wordmark is flatter — block letters without the heavy 3D drop shadow,
+  matching wraith's.
+
 ## [0.7.3]
 
 ### Added

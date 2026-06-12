@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from hickok import __version__, findings, http, payloads, sqli
+from hickok import __version__, findings, http, payloads, sqlcache, sqli
 from hickok.console import DIM, THEMES, Console
 from hickok.handler import ShellServer
 from hickok.showdown import Showdown
@@ -287,23 +287,31 @@ def cmd_sql(args) -> None:
     prof = sqli._PROFILES.get(dbms, sqli._PROFILES["sqlite"])
     c.good(f"DBMS: {dbms}")
 
+    # Per-target cache: skip anything pulled before, resume after a Ctrl-C.
+    oracle.cache = sqlcache.Cache(url, param, fresh=args.fresh)
+    if len(oracle.cache):
+        c.info(f"resuming — {len(oracle.cache)} value(s) cached from a previous run")
+
     # Non-interactive (batch) one-shots, else the interactive console.
-    if args.banner:
-        with c.working("reading the banner", lambda: oracle.count):
-            out = _walk_banner(oracle, prof, union)
-        c.good(out)
-    elif args.tables:
-        with c.working("listing tables", lambda: oracle.count):
-            tbls = list(_walk_tables(oracle, prof, union))   # extract inside the spinner
-        for t in tbls:
-            c.plain(f"  {t}")
-    elif args.dump:
-        with c.working(f"dumping {args.dump}", lambda: oracle.count):
-            cols, rows = _walk_dump(oracle, prof, union, args.dump)
-            rows = list(rows)                                # extract inside the spinner
-        _print_table(c, cols, rows)
-    else:
-        _sql_repl(c, oracle, prof, union)
+    try:
+        if args.banner:
+            with c.working("reading the banner", lambda: oracle.count):
+                out = _walk_banner(oracle, prof, union)
+            c.good(out)
+        elif args.tables:
+            with c.working("listing tables", lambda: oracle.count):
+                tbls = list(_walk_tables(oracle, prof, union))   # extract inside the spinner
+            for t in tbls:
+                c.plain(f"  {t}")
+        elif args.dump:
+            with c.working(f"dumping {args.dump}", lambda: oracle.count):
+                cols, rows = _walk_dump(oracle, prof, union, args.dump)
+                rows = list(rows)                                # extract inside the spinner
+            _print_table(c, cols, rows)
+        else:
+            _sql_repl(c, oracle, prof, union)
+    finally:
+        oracle.cache.close()
 
 
 # Technique-agnostic walkers: use UNION when available, else boolean-blind.
@@ -471,6 +479,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="auto (union>blind>time) · union · blind · time")
     sq.add_argument("-v", "--verbose", nargs="?", const=1, type=int, default=0, metavar="LEVEL",
                     help="-v 2 prints every injected payload")
+    sq.add_argument("--fresh", action="store_true",
+                    help="ignore the cached values for this target and re-extract from scratch")
     ev = sq.add_argument_group("evasion / opsec")
     ev.add_argument("--random-agent", action="store_true", help="use a random real browser User-Agent")
     ev.add_argument("-A", "--user-agent", metavar="UA", help="explicit User-Agent")
