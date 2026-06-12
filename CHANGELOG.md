@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.1]
+
+### Added
+- `hickok sql` also calibrates an **error-forcing** oracle
+  (`CASE WHEN (cond) THEN 1 ELSE 1/0 END`), so it works where a false condition
+  barely changes the page — the injectable content is a small fraction of it
+  (common on real apps). Verified extracting from a live MSSQL target.
+
 ## [0.3.0]
 
 ### Added

