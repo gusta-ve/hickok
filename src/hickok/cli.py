@@ -16,11 +16,11 @@ EXAMPLES = """\
 examples:
   hickok                                 listen on :9001 and drop into the console
   hickok -l 9001,9002 --lhost 10.10.14.7 multiple listeners, fixed LHOST
-  hickok hand                            act on wraith's latest run (found on its own)
+  hickok call                            act on wraith's latest run (found on its own)
   hickok payloads 10.10.14.7 9001        print reverse-shell one-liners
 """
 
-_COMMANDS = {"listen", "hand", "payloads", "eights", "sql"}
+_COMMANDS = {"listen", "hand", "call", "payloads", "eights", "sql"}
 
 
 class _Help(argparse.RawDescriptionHelpFormatter):
@@ -79,12 +79,17 @@ def cmd_payloads(args) -> None:
 
 
 def cmd_hand(args) -> None:
+    """Lay down the dead man's hand — the gunslinger and his cards."""
+    _console(args).hand()
+
+
+def cmd_call(args) -> None:
     c = _console(args)
     c.banner()
     path = args.file or findings.latest()
     if not path:
         c.bad(f"no wraith run found in {findings.runs_dir()} — run wraith first, "
-              "or pass a findings.json (`hickok hand <file>`)")
+              "or pass a findings.json (`hickok call <file>`)")
         raise SystemExit(1)
     if not args.file:
         c.info(f"reading {path}")
@@ -351,7 +356,7 @@ def _sql_repl(c, oracle, prof, union) -> None:
 
 def _output_options() -> argparse.ArgumentParser:
     """Cosmetic options every command understands, shared via parents= so they
-    work in any position (`hickok hand f.json --no-color`, not only before it)."""
+    work in any position (`hickok call f.json --no-color`, not only before it)."""
     op = argparse.ArgumentParser(add_help=False)
     op.add_argument("--theme", metavar="NAME", choices=list(THEMES),
                     help="colour theme: " + " | ".join(THEMES) + " (default: ember)")
@@ -380,10 +385,14 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--lhost", metavar="IP", help="LHOST embedded in generated payloads (auto-detected)")
     ln.set_defaults(func=cmd_listen)
 
-    hd = sub.add_parser("hand", help="act on a wraith findings.json",
+    cl = sub.add_parser("call", help="act on a wraith run — flag the footholds",
                         formatter_class=_Help, parents=[common])
-    hd.add_argument("file", nargs="?",
+    cl.add_argument("file", nargs="?",
                     help="path to a wraith findings.json (default: wraith's latest run, $WRAITH_RUNS-aware)")
+    cl.set_defaults(func=cmd_call)
+
+    hd = sub.add_parser("hand", help="lay down the dead man's hand",
+                        formatter_class=_Help, parents=[common])
     hd.set_defaults(func=cmd_hand)
 
     sq = sub.add_parser("sql", help="walk a SQL-injectable parameter (boolean-blind)",

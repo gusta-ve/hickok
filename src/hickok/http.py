@@ -7,8 +7,8 @@ OPSEC-minded by design:
     the exit can't be confirmed as Tor, hickok aborts instead of sending in the
     clear and deanonymising you.
 
-Dependency-free for HTTP proxies (stdlib urllib). SOCKS/Tor needs PySocks
-(optional: `pip install hickok[tor]`); or just run `torsocks hickok ...`.
+Fully dependency-free: HTTP(S) proxies go through stdlib urllib, and SOCKS5 /
+Tor is spoken natively (a tiny RFC 1928 client below) — no PySocks, no torsocks.
 """
 
 from __future__ import annotations
@@ -24,6 +24,8 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
+from hickok import __version__
+
 # A few current, common browser User-Agents (public values).
 _AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -35,7 +37,7 @@ _AGENTS = [
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
     "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
 ]
-_DEFAULT_UA = "hickok/0.4"
+_DEFAULT_UA = f"hickok/{__version__}"
 
 
 def random_agent() -> str:

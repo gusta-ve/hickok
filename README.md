@@ -1,5 +1,9 @@
 # hickok
 
+<p align="center">
+  <img src="docs/hero.svg" alt="hickok — reverse-shell handler & post-exploitation" width="900">
+</p>
+
 A reverse-shell handler and post-exploitation console. Catch shells on multiple
 listeners, run commands, upgrade to a full PTY, and generate reverse-shell
 one-liners — from one dependency-free CLI.
@@ -29,9 +33,10 @@ The listener is the default command, so a bare `hickok` starts catching shells:
 hickok                                   # listen on :9001, drop into the console
 hickok -l 9001,9002 --lhost 10.10.14.7   # multiple listeners, fixed LHOST
 hickok payloads 10.10.14.7 9001          # print reverse-shell one-liners
-hickok hand                              # act on wraith's latest run (found on its own)
-hickok hand path/to/findings.json        # ...or a specific one
+hickok call                              # act on wraith's latest run (found on its own)
+hickok call path/to/findings.json        # ...or a specific one
 hickok sql -u 'http://host/p?id=1' -p id # walk a SQL-injectable parameter
+hickok hand                              # lay down the dead man's hand (the reveal)
 ```
 
 Inside the console:
@@ -104,27 +109,33 @@ deanonymising you. You only need Tor running (`sudo systemctl start tor`). Check
 your setup first with `hickok sql --check-tor --tor`. `--proxy http://host:port`
 and `--proxy socks5://host:port` work too.
 
-## The bridge — `hickok hand`
+## The bridge — `hickok call`
 
-`hickok hand` picks up wraith's latest run on its own — wraith writes to a fixed
+`hickok call` picks up wraith's latest run on its own — wraith writes to a fixed
 per-user dir (`~/.local/share/wraith/runs/`, or wherever `WRAITH_RUNS` points)
 that both tools agree on, so it works from any directory. It reads the table,
 lists what wraith found, and flags every finding that means **code execution**
 (command injection, SSTI, …) — those are the doors to a shell.
 
 ```bash
-hickok hand                          # wraith's latest run, wherever you are
-hickok hand path/to/findings.json    # ...or a specific one
+hickok call                          # wraith's latest run, wherever you are
+hickok call path/to/findings.json    # ...or a specific one
 ```
 
 ```
   [Critical] Command Injection in 'host'   http://target/ping   ⮕ shell
   [High]     SSTI in 'name'                http://target/render ⮕ shell
   [High]     Reflected XSS in 'q'          http://target/search
+```
 
-      ┌─────┐   ┌─────┐   ┌─────┐   ┌─────┐
-      │ A♠  │   │ A♣  │   │ 8♠  │   │ 8♣  │
-      └─────┘   └─────┘   └─────┘   └─────┘
+`hickok hand` lays down the dead man's hand — the gunslinger, then the cards:
+
+```
+    ╭───────╮   ╭───────╮   ╭───────╮   ╭───────╮   ╭───────╮
+    │ A     │   │ A     │   │ 8     │   │ 8     │   │╱╲╱╲╱╲╱│
+    │   ♠   │   │   ♣   │   │   ♠   │   │   ♣   │   │╱╲╱╲╱╲╱│
+    │     A │   │     A │   │     8 │   │     8 │   │╱╲╱╲╱╲╱│
+    ╰───────╯   ╰───────╯   ╰───────╯   ╰───────╯   ╰───────╯
 
   aces and eights — the dead man's hand.
 ```

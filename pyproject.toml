@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hickok"
-version = "0.7.1"
+dynamic = ["version"]
 description = "Reverse-shell handler & post-exploitation console — the eights to wraith's aces."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,6 +31,9 @@ Changelog = "https://github.com/gusta-ve/hickok/blob/main/CHANGELOG.md"
 
 [project.scripts]
 hickok = "hickok.cli:main"
+
+[tool.hatch.version]
+path = "src/hickok/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hickok"]
