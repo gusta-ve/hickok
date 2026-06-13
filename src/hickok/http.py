@@ -169,14 +169,21 @@ class Http:
             if wait > 0:
                 time.sleep(wait)
         req = urllib.request.Request(url, headers=self._request_headers())
-        self.count += 1
-        try:
-            with self._opener.open(req, timeout=self.timeout) as r:
-                body = r.read(200_000).decode("utf-8", "ignore")
-        except urllib.error.HTTPError as exc:
-            body = exc.read(200_000).decode("utf-8", "ignore")
-        except Exception:
-            body = ""
+        body = ""
+        for attempt in range(2):                 # one retry on a transient timeout/conn error
+            self.count += 1
+            try:
+                with self._opener.open(req, timeout=self.timeout) as r:
+                    body = r.read(200_000).decode("utf-8", "ignore")
+                break
+            except urllib.error.HTTPError as exc:
+                try:                              # a 500 is a real response (error-forcing oracle)
+                    body = exc.read(200_000).decode("utf-8", "ignore")
+                except Exception:
+                    body = ""
+                break                             # not transient — don't retry an HTTP error
+            except Exception:
+                body = ""                         # timeout / connection error — retry once
         self._last = time.monotonic()
         return body
 

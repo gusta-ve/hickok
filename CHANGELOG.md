@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.12]
+
+### Fixed
+- `hickok sql` no longer aborts a walk with `error: timed out`: the error-page
+  read (the error-forcing oracle triggers 500s on purpose) is guarded, and a
+  transient timeout retries once.
+- A timed-out / empty response now reads as **False** instead of biasing the
+  binary search to True — which used to run away into junk lengths and codes.
+- Junk "runaway" values (the search hitting its ceiling) are no longer cached,
+  so one flaky run can't poison later runs. `--fresh` clears a poisoned cache.
+
 ## [0.7.11]
 
 ### Changed

