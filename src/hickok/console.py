@@ -31,14 +31,6 @@ THEMES = {
 }
 DEFAULT_THEME = "ember"
 
-WORDMARK = [
-    "██   ██ ██  ██████ ██   ██  ██████  ██   ██",
-    "██   ██ ██ ██      ██  ██  ██    ██ ██  ██",
-    "███████ ██ ██      █████   ██    ██ █████",
-    "██   ██ ██ ██      ██  ██  ██    ██ ██  ██",
-    "██   ██ ██  ██████ ██   ██  ██████  ██   ██",
-]
-
 _BONE = (235, 235, 235)   # black suits render bright on a dark terminal
 
 
@@ -135,14 +127,11 @@ class Console:
     def banner(self) -> None:
         if not self.show_banner:
             return
-        c0, c1 = self.theme["grad"]
         self._emit()
-        for i, line in enumerate(WORDMARK):
-            shade = _lerp(c0, c1, i / (len(WORDMARK) - 1))
-            self._emit("  " + ((BOLD + _fg(shade) + line + RESET) if self.color else line))
+        self._glow_art("banner.txt", *self._GLOW)        # the gunslinger, his hat low
         self._emit()
-        self._emit("  " + self._accent("» ")
-                   + self._c(DIM, "reverse-shell handler & post-exploitation")
+        self._emit("  " + self._c(BOLD + _fg(self.theme["accent"]), "hickok")
+                   + self._c(DIM, "  ·  reverse-shell handler & post-exploitation")
                    + "   " + self._c(DIM, f"v{__version__}"))
         self._emit("  " + self._c(DIM, "gusta-ve · github.com/gusta-ve/hickok · authorized use only"))
         self._emit("  " + self._c(DIM, "J.B. Hickok · Deadwood, 1876"))
@@ -208,16 +197,15 @@ class Console:
         bold = BOLD if idx >= 6 else ""
         return bold + _fg(_lerp(lo, hi, (idx - 1) / 8)) + run + RESET
 
-    def _gunslinger(self) -> None:
-        """Render the gunslinger line-art with a dark-amber → bright-gold glow.
-        On a TTY the rows are drawn one at a time, so he rises into view; piped
-        or non-interactive output gets it all at once."""
+    def _glow_art(self, name: str, lo, hi, live: bool = False) -> None:
+        """Render a ramp-art file with a low→high glow. ``live`` draws it row by
+        row (the reveal rises into view); otherwise it lands all at once (banner).
+        Piped / non-interactive output is never animated."""
         try:
-            art = (_ART_DIR / "hickok.txt").read_text(encoding="utf-8").rstrip("\n").split("\n")
+            art = (_ART_DIR / name).read_text(encoding="utf-8").rstrip("\n").split("\n")
         except OSError:
             return
-        live = self.color and sys.stdout.isatty()
-        lo, hi = (120, 80, 30), (255, 225, 160)      # dark amber → bright gold
+        draw = live and self.color and sys.stdout.isatty()
         for line in art:
             if not self.color:
                 self._emit("  " + line)
@@ -233,9 +221,14 @@ class Console:
                 run += ch
             out += self._tint(run, idx, lo, hi)
             self._emit(out)
-            if live:
+            if draw:
                 sys.stdout.flush()
                 time.sleep(0.03)               # the draw
+
+    _GLOW = ((120, 80, 30), (255, 225, 160))   # dark amber → bright gold
+
+    def _gunslinger(self) -> None:
+        self._glow_art("hickok.txt", *self._GLOW, live=True)
 
     def hand(self) -> None:
         """The signature reveal — the gunslinger rises, then lays down the hand,

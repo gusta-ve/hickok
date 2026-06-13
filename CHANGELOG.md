@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.5]
+
+### Changed
+- The banner dropped the block wordmark for the gunslinger's head — hat low,
+  hard eyes — drawn in ASCII: the face of the tool, a preview of the full mascot
+  that `hickok hand` reveals. The repo hero is the full mascot beside the name,
+  set clean (no figlet anywhere).
+
 ## [0.7.4]
 
 ### Added

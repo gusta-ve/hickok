@@ -2,11 +2,12 @@ from hickok.cli import _with_default_command
 from hickok.console import Console
 
 
-def test_banner_shows_wordmark_and_wild_bill(capsys):
+def test_banner_shows_the_gunslinger(capsys):
     Console(color=False, banner=True).banner()
     out = capsys.readouterr().out
-    assert "█" in out                            # the block wordmark
+    assert "hickok" in out                       # the name label (no figlet wordmark anymore)
     assert "Hickok" in out and "1876" in out     # the memorial
+    assert out.count("\n") > 15                  # the gunslinger art, not just text
 
 
 def test_eights_reveal(capsys):

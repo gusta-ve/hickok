@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate docs/hero.svg — the HICKOK wordmark beside the gunslinger line-art.
+"""Generate docs/hero.svg — the name beside the gunslinger line-art.
 
 Reads the same art the CLI draws (src/hickok/art/hickok.txt), so the repo banner
-and the terminal reveal never drift. Run after changing the art or wordmark:
+and the terminal reveal never drift. No block wordmark — just the name set clean
+and the mascot. Run after changing the art:
 
     python3 docs/make_hero.py
 """
@@ -11,26 +12,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ART = (ROOT / "src/hickok/art/hickok.txt").read_text(encoding="utf-8").rstrip("\n").split("\n")
 
-WORDMARK = [
-    "██   ██ ██  ██████ ██   ██  ██████  ██   ██",
-    "██   ██ ██ ██      ██  ██  ██    ██ ██  ██",
-    "███████ ██ ██      █████   ██    ██ █████",
-    "██   ██ ██ ██      ██  ██  ██    ██ ██  ██",
-    "██   ██ ██  ██████ ██   ██  ██████  ██   ██",
-]
-TAGLINE = "reverse-shell handler & post-exploitation · gusta-ve"
+NAME = "hickok"
+TAGLINE = "reverse-shell handler & post-exploitation"
+SIG = "gusta-ve · J.B. Hickok, Deadwood 1876"
 
 # ---- layout -----------------------------------------------------------------
-W, H = 994, 341                         # match wraith's hero proportions
-RAMP = " .:-=+*#%@"
+# Tall card so the full mascot can be set big enough to stay crisp (a small
+# font is what made the line-art fringe).
+W, H = 1080, 560
 
-# wordmark: left column, vertically centred
-WM_X, WM_FS, WM_LH = 40, 21, 26         # same weight as wraith
-WM_Y0 = (H - len(WORDMARK) * WM_LH) // 2 + WM_FS
+NAME_X, NAME_FS = 50, 80            # the name, set large and clean (no figlet)
+NAME_Y = H // 2 + 8
 
-# art: right column — 41 rows squeezed into the same band as wraith's spectre
-ART_FS, ART_LH = 7.0, 7.1
-ART_X = 624
+# art: the full mascot, right column, set large
+ART_FS, ART_LH = 12.0, 12.6
+ART_X = 1080 - round(max(len(l) for l in ART) * ART_FS * 0.6) - 36
 ART_Y0 = (H - len(ART) * ART_LH) / 2 + ART_FS
 
 
@@ -44,7 +40,7 @@ def main() -> None:
         f'viewBox="0 0 {W} {H}" font-family="ui-monospace,Menlo,Consolas,monospace">',
         '<defs>'
         '<linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
-        '<stop offset="0" stop-color="#ffcd5f"/><stop offset="1" stop-color="#8a3800"/>'
+        '<stop offset="0" stop-color="#ffcd5f"/><stop offset="1" stop-color="#b35a12"/>'
         '</linearGradient>'
         '<linearGradient id="a" x1="0" y1="0" x2="0" y2="1">'
         '<stop offset="0" stop-color="#ffe0a6"/><stop offset="1" stop-color="#9a6f38"/>'
@@ -52,16 +48,16 @@ def main() -> None:
         '</defs>',
         f'<rect width="{W}" height="{H}" rx="12" fill="#0b0d10" stroke="#1c2128"/>',
     ]
-    for i, line in enumerate(WORDMARK):
-        y = WM_Y0 + i * WM_LH
-        out.append(f'<text x="{WM_X}" y="{y}" font-size="{WM_FS}" font-weight="700" '
-                   f'fill="url(#g)" xml:space="preserve">{esc(line)}</text>')
+    out.append(f'<text x="{NAME_X}" y="{NAME_Y}" font-size="{NAME_FS}" font-weight="700" '
+               f'fill="url(#g)" letter-spacing="2">{esc(NAME)}</text>')
+    out.append(f'<text x="{NAME_X + 4}" y="{NAME_Y + 34}" font-size="15" '
+               f'fill="#8b949e">{esc(TAGLINE)}</text>')
     for i, line in enumerate(ART):
         y = round(ART_Y0 + i * ART_LH, 1)
         out.append(f'<text x="{ART_X}" y="{y}" font-size="{ART_FS}" fill="url(#a)" '
                    f'xml:space="preserve">{esc(line)}</text>')
-    out.append(f'<text x="{WM_X}" y="{H - 28}" font-size="13" fill="#8b949e" '
-               f'xml:space="preserve">{esc(TAGLINE)}</text>')
+    out.append(f'<text x="{NAME_X + 4}" y="{H - 26}" font-size="13" fill="#6e7681" '
+               f'xml:space="preserve">{esc(SIG)}</text>')
     out.append('</svg>')
     dst = ROOT / "docs/hero.svg"
     dst.write_text("\n".join(out) + "\n", encoding="utf-8")
