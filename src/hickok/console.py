@@ -173,24 +173,40 @@ class Console:
         self._emit("        " + self._c(DIM, "…and Hickok was holding the eights."))
         self._emit()
 
-    def _center(self, text: str, width: int = 80) -> str:
-        """Indent a (possibly coloured) line so its visible text centres in width —
-        used to sit the captions under the centred cards/art above."""
+    def _center(self, text: str, center: float = 40) -> str:
+        """Indent a (possibly coloured) line so its visible text centres on the
+        ``center`` column — used to sit the cards and captions under the art."""
         visible = re.sub(r"\x1b\[[0-9;]*m", "", text)
-        return " " * max(0, (width - len(visible)) // 2) + text
+        return " " * max(0, round(center - len(visible) / 2)) + text
 
-    def dead_mans_hand(self, dealt_by_wraith: bool = False, indent: str = "    ") -> None:
+    def _art_center(self, name: str) -> float:
+        """The column the art's figure is centred on when drawn (with the 2-space
+        indent of `_glow_art`), so the cards/captions can line up under it."""
+        try:
+            art = (_ART_DIR / name).read_text(encoding="utf-8").rstrip("\n").split("\n")
+        except OSError:
+            return 40
+        ne = [l for l in art if l.strip()]
+        if not ne:
+            return 40
+        left = min(len(l) - len(l.lstrip()) for l in ne)
+        right = max(len(l.rstrip()) for l in ne)
+        return 2 + (left + right) / 2
+
+    def dead_mans_hand(self, dealt_by_wraith: bool = False, center: float = 40) -> None:
         """The full hand laid down — aces and eights. When the aces came from a
-        wraith findings file, the catch is acknowledged. ``indent`` shifts the
-        whole spread (the reveal centres it under the gunslinger)."""
+        wraith findings file, the catch is acknowledged. Cards and captions are
+        centred on ``center`` (the reveal passes the gunslinger's own centre)."""
+        block = 5 * 9 + 4 * 3
+        indent = " " * max(0, round(center - block / 2))
         self._emit()
         self._cards([("A", "♠"), ("A", "♣"), ("8", "♠"), ("8", "♣"), None], indent=indent)
         self._emit()
-        self._emit(self._center(self._c(BOLD, "aces and eights — the dead man's hand.")))
-        self._emit(self._center(self._c(DIM, "the fifth card stayed face down — nobody knows what Bill held.")))
+        self._emit(self._center(self._c(BOLD, "aces and eights — the dead man's hand."), center))
+        self._emit(self._center(self._c(DIM, "the fifth card stayed face down — nobody knows what Bill held."), center))
         if dealt_by_wraith:
-            self._emit(self._center(self._c(DIM, "the wraith dealt the aces; Hickok brought the eights.")))
-        self._emit(self._center(self._c(DIM, "J.B. Hickok, Deadwood 1876.  the house always collects.")))
+            self._emit(self._center(self._c(DIM, "the wraith dealt the aces; Hickok brought the eights."), center))
+        self._emit(self._center(self._c(DIM, "J.B. Hickok, Deadwood 1876.  the house always collects."), center))
         self._emit()
 
     # ------------------------------------------------------- the gunslinger
@@ -238,12 +254,10 @@ class Console:
 
     def hand(self) -> None:
         """The signature reveal — the gunslinger rises, then lays down the hand,
-        the five-card spread centred under the art."""
-        block = 5 * 9 + 4 * 3                          # five 9-wide cards, 3-space gaps
-        pad = max(0, (2 + 78 - block) // 2)            # centre under the 78-wide art (indent 2)
+        cards and captions centred on his own column."""
         self._emit()
         self._gunslinger()
-        self.dead_mans_hand(indent=" " * pad)
+        self.dead_mans_hand(center=self._art_center("hickok.txt"))
 
 
 class _Working:

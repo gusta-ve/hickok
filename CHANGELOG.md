@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.10]
+
+### Changed
+- The cards and captions now centre on the gunslinger's own column (measured
+  from the art), so the whole spread lines up exactly under the figure.
+
 ## [0.7.9]
 
 ### Changed
