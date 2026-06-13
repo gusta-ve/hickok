@@ -18,6 +18,12 @@ eights — it acts on what wraith caught. Aces and eights, the *dead man's hand*
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![MIT](https://img.shields.io/badge/license-MIT-green)
 
+- [Install](#install)
+- [Usage](#usage)
+- [SQL injection](#sql-injection--hickok-sql)
+- [The bridge](#the-bridge--hickok-call)
+- [Showdown mode](#showdown-mode--hickok-showdown)
+
 ## Install
 
 ```bash
@@ -137,7 +143,8 @@ hickok call path/to/findings.json    # ...or a specific one
   [High]     Reflected XSS in 'q'          http://target/search
 ```
 
-`hickok hand` lays down the dead man's hand — the gunslinger, then the cards:
+`hickok hand` lays down the dead man's hand — in the terminal the gunslinger
+rises first, then the cards:
 
 ```
     ╭───────╮   ╭───────╮   ╭───────╮   ╭───────╮   ╭───────╮
