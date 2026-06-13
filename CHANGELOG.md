@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.7]
+
+### Changed
+- Centred the banner art over the name and tagline (it was sitting too far right).
+
 ## [0.7.6]
 
 ### Changed
