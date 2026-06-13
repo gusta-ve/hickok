@@ -24,6 +24,24 @@ examples:
   hickok payloads 10.10.14.7 9001        print reverse-shell one-liners
 """
 
+# A lean tutorial for the bare command — the full help lives behind -h.
+_QUICKSTART = [
+    ("hickok -l 9001", "catch reverse shells"),
+    ("hickok call", "act on wraith's latest run"),
+    ("hickok sql -u URL -p id", "walk a SQL injection"),
+    ("hickok hand", "lay down the dead man's hand"),
+]
+
+
+def _quickstart(c: "Console") -> None:
+    """Banner + a few example commands (run `hickok -h` for the full help)."""
+    c.banner()
+    for cmd, desc in _QUICKSTART:
+        c.plain("  " + c._accent(cmd.ljust(26)) + c._c(DIM, desc))
+    c.plain("")
+    c.plain("  " + c._c(DIM, "hickok -h  ·  full help, every command and option"))
+
+
 _COMMANDS = {"listen", "hand", "call", "showdown", "payloads", "eights", "sql"}
 
 # `hickok showdown` flips a mode that sticks between runs, so it's persisted here.
@@ -514,12 +532,11 @@ def main(argv=None) -> None:
     argv = sys.argv[1:] if argv is None else list(argv)
     parser = build_parser()
     if not argv:
-        Console().banner()
-        parser.print_help()
+        _quickstart(Console())
         return
     args = parser.parse_args(_with_default_command(argv))
     if not hasattr(args, "func"):
-        parser.print_help()
+        _quickstart(_console(args))
         return
     try:
         args.func(args)

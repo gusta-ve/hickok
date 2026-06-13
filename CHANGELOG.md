@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.11]
+
+### Changed
+- A bare `hickok` now shows the banner and a short quickstart (a few example
+  commands) instead of dumping the full help — `hickok -h` still has it all.
+
 ## [0.7.10]
 
 ### Changed
