@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.8]
+
+### Changed
+- Repo/docs parity with wraith: README gains PyPI and Release badges, a table of
+  contents and a Tests section; added `CONTRIBUTING.md`, `SECURITY.md` and a
+  `Makefile`, and a `wraith-runs/` gitignore entry. No package code changed.
+
 ## [0.7.7]
 
 ### Changed
