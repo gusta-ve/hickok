@@ -12,7 +12,9 @@ It's the other half of a hand: [**wraith**](https://github.com/gusta-ve/wraith)
 holds the aces — it does the recon and proves the way in; **hickok** brings the
 eights — it acts on what wraith caught. Aces and eights, the *dead man's hand*.
 
+[![PyPI](https://img.shields.io/pypi/v/hickok?color=ffb946&label=pypi)](https://pypi.org/project/hickok/)
 [![CI](https://github.com/gusta-ve/hickok/actions/workflows/ci.yml/badge.svg)](https://github.com/gusta-ve/hickok/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/gusta-ve/hickok?color=ffb946)](https://github.com/gusta-ve/hickok/releases)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![MIT](https://img.shields.io/badge/license-MIT-green)
 
@@ -156,6 +158,12 @@ moment a reverse shell lands the listener plays the catch out: the gunslinger
 rises, lays down the dead man's hand, and calls it — *the house folds.* The reward
 is for actually getting in; plain runs and a plain listener stay quiet. Run
 `hickok showdown` again to turn it off.
+
+## Tests
+
+```bash
+pip install -e ".[dev]" && pytest
+```
 
 ## Disclaimer
 
