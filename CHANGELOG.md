@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.13]
+
+### Added
+- `hickok sql` now detects a **filtered / WAF response** — a page matching
+  neither the calibrated TRUE nor FALSE page (a third state, e.g. a denylisted
+  keyword like `information_schema`). Instead of silently reading it as a False
+  bit (which made `tables` come back empty), it counts the anomaly and warns.
+- **Common-name fallback** for enumeration: when the catalog
+  (`information_schema`) is blocked or empty on a blind walk, `tables` /
+  `columns` probe existence by name (`SELECT count(*) FROM <t>`) — no
+  `information_schema` in the payload — so a filtered target can still be walked.
+
 ## [0.7.12]
 
 ### Fixed

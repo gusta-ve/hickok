@@ -318,12 +318,12 @@ def cmd_sql(args) -> None:
             c.good(out)
         elif args.tables:
             with c.working("listing tables", lambda: oracle.count):
-                tbls = list(_walk_tables(oracle, prof, union))   # extract inside the spinner
+                tbls = _tables(c, oracle, prof, union)           # extract inside the spinner
             for t in tbls:
                 c.plain(f"  {t}")
         elif args.dump:
             with c.working(f"dumping {args.dump}", lambda: oracle.count):
-                cols, rows = _walk_dump(oracle, prof, union, args.dump)
+                cols, rows = _walk_dump(oracle, prof, union, args.dump, console=c)
                 rows = list(rows)                                # extract inside the spinner
             _print_table(c, cols, rows)
         else:
@@ -351,14 +351,47 @@ def _walk_tables(oracle, prof, union):
     return sqli.tables(oracle, prof)
 
 
+def _tables(c, oracle, prof, union):
+    """Tables via the catalog; if that's blocked/empty on a blind walk, fall back
+    to guessing common names (no information_schema needed)."""
+    tbls = list(_walk_tables(oracle, prof, union))
+    if tbls or union:
+        return tbls
+    blocked = getattr(oracle, "blocked", 0)
+    if blocked:
+        c.warn(f"the catalog (information_schema) looks filtered — {blocked} anomalous "
+               "response(s); falling back to common table names")
+    else:
+        c.info("catalog returned nothing — trying common table names")
+    tbls = list(sqli.common_tables(oracle))
+    if tbls:
+        c.good(f"{len(tbls)} table(s) found by name (information_schema bypassed)")
+    else:
+        c.warn("no common table names matched — try `query` with a name you expect")
+    return tbls
+
+
 def _walk_columns(oracle, prof, union, table):
     if union:
         return sqli.union_columns(oracle.http, oracle, *union, table)
     return sqli.columns(oracle, prof, table)
 
 
-def _walk_dump(oracle, prof, union, table):
-    cols = list(_walk_columns(oracle, prof, union, table))   # full list — reused per row
+def _columns(c, oracle, prof, union, table):
+    cols = list(_walk_columns(oracle, prof, union, table))
+    if cols or union:
+        return cols
+    if getattr(oracle, "blocked", 0):
+        c.warn(f"columns of {table} via information_schema look filtered — guessing common names")
+    cols = list(sqli.common_columns(oracle, table))
+    if cols:
+        c.good(f"{len(cols)} column(s) found by name")
+    return cols
+
+
+def _walk_dump(oracle, prof, union, table, console=None):
+    cols = (_columns(console, oracle, prof, union, table) if console
+            else list(_walk_columns(oracle, prof, union, table)))   # full list — reused per row
     if union:
         rows = sqli.union_dump(oracle.http, oracle, *union, table, cols)
     else:
@@ -403,19 +436,19 @@ def _sql_repl(c, oracle, prof, union) -> None:
             elif cmd in ("db", "current-db"):
                 c.good(_walk_scalar(oracle, prof, union, prof["db"]))
             elif cmd == "tables":
-                for t in _walk_tables(oracle, prof, union):
+                for t in _tables(c, oracle, prof, union):
                     c.plain(f"  {t}")
             elif cmd == "columns":
                 if not arg:
                     c.warn("usage: columns <table>")
                     continue
-                for col in _walk_columns(oracle, prof, union, arg):
+                for col in _columns(c, oracle, prof, union, arg):
                     c.plain(f"  {col}")
             elif cmd == "dump":
                 if not arg:
                     c.warn("usage: dump <table>")
                     continue
-                cols, rowgen = _walk_dump(oracle, prof, union, arg)
+                cols, rowgen = _walk_dump(oracle, prof, union, arg, console=c)
                 rows = []
                 try:
                     for r in rowgen:
