@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.9]
+
+### Changed
+- The dead man's hand captions now sit centred under the cards and the
+  gunslinger, instead of left-indented.
+
 ## [0.7.8]
 
 ### Changed

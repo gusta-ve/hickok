@@ -8,6 +8,7 @@ NO_COLOR; force it with HICKOK_COLOR=1. Pick a theme with --theme or HICKOK_THEM
 from __future__ import annotations
 
 import os
+import re
 import sys
 import threading
 import time
@@ -172,19 +173,24 @@ class Console:
         self._emit("        " + self._c(DIM, "…and Hickok was holding the eights."))
         self._emit()
 
+    def _center(self, text: str, width: int = 80) -> str:
+        """Indent a (possibly coloured) line so its visible text centres in width —
+        used to sit the captions under the centred cards/art above."""
+        visible = re.sub(r"\x1b\[[0-9;]*m", "", text)
+        return " " * max(0, (width - len(visible)) // 2) + text
+
     def dead_mans_hand(self, dealt_by_wraith: bool = False, indent: str = "    ") -> None:
         """The full hand laid down — aces and eights. When the aces came from a
         wraith findings file, the catch is acknowledged. ``indent`` shifts the
         whole spread (the reveal centres it under the gunslinger)."""
-        cap = indent + "  "
         self._emit()
         self._cards([("A", "♠"), ("A", "♣"), ("8", "♠"), ("8", "♣"), None], indent=indent)
         self._emit()
-        self._emit(cap + self._c(BOLD, "aces and eights — the dead man's hand."))
-        self._emit(cap + self._c(DIM, "the fifth card stayed face down — nobody knows what Bill held."))
+        self._emit(self._center(self._c(BOLD, "aces and eights — the dead man's hand.")))
+        self._emit(self._center(self._c(DIM, "the fifth card stayed face down — nobody knows what Bill held.")))
         if dealt_by_wraith:
-            self._emit(cap + self._c(DIM, "the wraith dealt the aces; Hickok brought the eights."))
-        self._emit(cap + self._c(DIM, "J.B. Hickok, Deadwood 1876.  the house always collects."))
+            self._emit(self._center(self._c(DIM, "the wraith dealt the aces; Hickok brought the eights.")))
+        self._emit(self._center(self._c(DIM, "J.B. Hickok, Deadwood 1876.  the house always collects.")))
         self._emit()
 
     # ------------------------------------------------------- the gunslinger
