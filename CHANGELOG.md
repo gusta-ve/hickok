@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.18]
+
+### Changed
+- The banner names **Wild Bill Hickok** (was `J.B. Hickok`), and the README
+  closes in his name — leaning into the gunslinger the tool is named for.
+
 ## [0.7.17]
 
 ### Added

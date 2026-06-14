@@ -205,4 +205,4 @@ MIT.
 
 ---
 
-*in memory of J.B. Hickok — shot holding aces and eights, Deadwood, 1876.*
+*in memory of Wild Bill Hickok — shot holding aces and eights, Deadwood, 1876.*
