@@ -5,8 +5,8 @@
 </p>
 
 A reverse-shell handler and post-exploitation console. Catch shells on multiple
-listeners, run commands, upgrade to a full PTY, and generate reverse-shell
-one-liners — from one dependency-free CLI.
+listeners, run commands, upgrade to a full PTY, generate reverse-shell one-liners,
+and walk a SQL injection end-to-end — from one dependency-free CLI.
 
 It's the other half of a hand: [**wraith**](https://github.com/gusta-ve/wraith)
 holds the aces — it does the recon and proves the way in; **hickok** brings the
@@ -81,11 +81,15 @@ hickok sql -u 'http://host/db?id=1' -p id   # or just `hickok sql` to read it
                                             # from wraith's latest SQLi finding
 ```
 
+On entry it prints the DBMS and the database(s) it can see, so you have somewhere
+to start digging:
+
 ```
 hickok(sql)>
-  banner            DBMS version             user / db    current user / database
-  tables            list tables              columns <t>  a table's columns
-  dump <table>      dump its rows            query "<SELECT>"   extract one value
+  banner            DBMS version             user / db        current user / database
+  databases         list databases           tables           list tables
+  columns <table>   a table's columns        dump <table>     dump its rows
+  query "<SELECT>"  extract one value        help / exit      this / quit
 ```
 
 ```
@@ -94,7 +98,19 @@ hickok(sql)> dump users
   ---+----------+-----------
   1  | admin    | s3cr3t!
   2  | alice    | wonderland
+  [+] 2 row(s) saved → ~/.local/share/hickok/sql/dumps/host_id_users.csv
 ```
+
+Every `dump` is written to a **CSV** (and the path printed) so it outlives the
+session. Pass `-o DIR` / `--output DIR` to drop it straight into your engagement
+folder instead of the default data dir.
+
+**Filtered / WAF'd targets.** String literals go in **quote-free** — a hex
+literal on MySQL, `char()` / `chr()` elsewhere — so a target that strips single
+quotes still reflects and dumps where a quoted payload would come back empty.
+And when the catalog (`information_schema`) is blocked, hickok **guesses names**
+instead: common table/column names plus `<db>_<name>` and CMS prefixes (`wp_`,
+`phpbb_`, …), probed by name with no catalog in the payload.
 
 Boolean-blind is slow by nature (each character is binary-searched over many
 requests) — it turns a live heartbeat with the running count as it goes, and
@@ -113,7 +129,7 @@ hickok sql -u '...' -p id \
   --tor \                          # route via Tor, verified (see below)
   --cookie 'sid=…' -H 'X-Api: …' \ # authenticated injection
   --delay 0.3 -v 2 \               # throttle; print every payload
-  --dump users                     # non-interactive: run one action and exit
+  --dump users -o ./loot           # non-interactive: dump to ./loot/users.csv and exit
 ```
 
 `--tor` is **zero-dependency, leak-aware and fail-closed**: hickok speaks SOCKS5
