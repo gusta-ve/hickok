@@ -83,7 +83,7 @@ def test_union_walks_and_dumps_a_table():
     net = http.Http(timeout=5)
     oracle = sqli.calibrate(net, f"http://127.0.0.1:{port}/?id=x1", "id", "x1")
     assert oracle is not None
-    setup = sqli.union_setup(net, oracle)
+    setup = sqli.union_setup(net, oracle, "sqlite")
     assert setup == (2, 0)                     # 2 columns, the first is reflected
     cols = sqli.union_columns(net, oracle, "sqlite", *setup, "t")
     assert cols == ["a", "b"]

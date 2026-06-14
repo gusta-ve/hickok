@@ -280,7 +280,7 @@ def cmd_sql(args) -> None:
             dbms = sqli.fingerprint(oracle)
         if args.technique in ("auto", "union"):
             with c.working("probing for a UNION", lambda: net.count):
-                setup = sqli.union_setup(net, oracle)
+                setup = sqli.union_setup(net, oracle, dbms)
             if setup:
                 union = (dbms, *setup)
                 c.good(f"union-based — {setup[0]} columns, output reflected (fast)")
@@ -355,7 +355,7 @@ def _tables(c, oracle, prof, union):
     """Tables via the catalog; if that's blocked/empty on a blind walk, fall back
     to guessing common names (no information_schema needed)."""
     tbls = list(_walk_tables(oracle, prof, union))
-    if tbls or union:
+    if tbls:
         return tbls
     blocked = getattr(oracle, "blocked", 0)
     if blocked:
@@ -379,7 +379,7 @@ def _walk_columns(oracle, prof, union, table):
 
 def _columns(c, oracle, prof, union, table):
     cols = list(_walk_columns(oracle, prof, union, table))
-    if cols or union:
+    if cols:
         return cols
     if getattr(oracle, "blocked", 0):
         c.warn(f"columns of {table} via information_schema look filtered — guessing common names")

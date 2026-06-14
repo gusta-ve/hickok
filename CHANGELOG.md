@@ -3,6 +3,22 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.14]
+
+### Fixed
+- **UNION on quote-filtering targets.** The union path built every payload with
+  single-quoted literals (markers, separators, table names). A target that strips
+  or filters single quotes reflected nothing back, so `hickok sql` wrongly
+  concluded there was no UNION and fell back to the (here, also-filtered) blind
+  walk — coming back empty. Markers and separators now go in as **quote-free
+  literals** (a hex literal on MySQL, `char()`/`chr()` elsewhere); they decode to
+  the same text the DBMS echoes, so reflection works through a quote filter while
+  ordinary targets are unaffected.
+- When UNION is in play but the catalog (`information_schema`) is blocked,
+  `tables` / `columns` no longer skip the common-name fallback — so a known table
+  can still be dumped (by-name probing needs no `information_schema`, quotes, or
+  string functions), and the UNION reads the rows in a single request.
+
 ## [0.7.13]
 
 ### Added
