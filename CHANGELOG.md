@@ -3,6 +3,29 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.17]
+
+### Added
+- **Session transcripts** — every reverse shell is logged to a file under
+  `~/.local/share/hickok/sessions/`, announced when the shell lands, so the
+  session survives as an engagement artifact.
+- A dropped shell now **announces itself** (`session N died`) instead of going
+  quiet — a lost foothold no longer passes unnoticed. A deliberate `kill` stays
+  silent.
+- More reverse-shell payloads: **socat** (and a fully-interactive `socat-pty`)
+  and a **base64-wrapped bash** for contexts that choke on quotes or `/dev/tcp`.
+
+### Changed
+- `interact` / `upgrade` / `kill` **default to the only session** when no id is
+  given — no more typing the id when there's just one shell.
+- `upgrade` now spawns the PTY *and* sets its `TERM` and window size to match
+  your terminal, so `clear` / `vi` / full-screen apps behave after `interact`.
+- `guess_lhost` prefers a **VPN/tunnel interface** (`tun`/`tap`/`wg`/`utun`)
+  when one is up — the engagement address — instead of the LAN/NAT route.
+- `hickok call` lists findings **worst-severity first**, and recognises more
+  code-execution titles (OS command, deserialization, file upload, struts,
+  shellshock, log4, expression-language, …) as footholds.
+
 ## [0.7.16]
 
 ### Changed

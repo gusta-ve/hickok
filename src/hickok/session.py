@@ -12,7 +12,8 @@ class ShellSession:
     queue (so `cmd` can collect a burst of output) or straight to stdout (while
     interacting)."""
 
-    def __init__(self, sid: int, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    def __init__(self, sid: int, reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
+                 on_close=None, log_path=None):
         self.id = sid
         self.reader = reader
         self.writer = writer
@@ -22,6 +23,15 @@ class ShellSession:
         self._queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._mirror = False
         self._task: asyncio.Task | None = None
+        self._on_close = on_close      # called once when the shell drops on its own
+        self._closing = False          # set on a deliberate kill, to skip the "died" notice
+        self.log_path = log_path
+        self._log = None
+        if log_path:
+            try:
+                self._log = open(log_path, "ab", buffering=0)
+            except OSError:
+                self._log = None
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._pump())
@@ -32,6 +42,11 @@ class ShellSession:
                 data = await self.reader.read(4096)
                 if not data:
                     break
+                if self._log is not None:
+                    try:
+                        self._log.write(data)
+                    except OSError:
+                        pass
                 if self._mirror:
                     sys.stdout.buffer.write(data)
                     sys.stdout.buffer.flush()
@@ -41,6 +56,17 @@ class ShellSession:
             pass
         finally:
             self.alive = False
+            self._close_log()
+            if self._on_close and not self._closing:
+                self._on_close(self)
+
+    def _close_log(self) -> None:
+        if self._log is not None:
+            try:
+                self._log.close()
+            except OSError:
+                pass
+            self._log = None
 
     async def send(self, data: bytes) -> None:
         self.writer.write(data)
@@ -67,7 +93,9 @@ class ShellSession:
         self._mirror = False
 
     def close(self) -> None:
+        self._closing = True       # deliberate: the pump shouldn't fire the "died" notice
         self.alive = False
+        self._close_log()
         try:
             self.writer.close()
         except Exception:
@@ -83,9 +111,9 @@ class SessionManager:
         self._sessions: dict[int, ShellSession] = {}
         self._counter = 0
 
-    def add(self, reader, writer) -> ShellSession:
+    def add(self, reader, writer, on_close=None, log_path=None) -> ShellSession:
         self._counter += 1
-        sess = ShellSession(self._counter, reader, writer)
+        sess = ShellSession(self._counter, reader, writer, on_close=on_close, log_path=log_path)
         self._sessions[sess.id] = sess
         return sess
 

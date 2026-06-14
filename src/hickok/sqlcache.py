@@ -21,9 +21,15 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-def runs_dir() -> Path:
+def data_home() -> Path:
+    """hickok's data directory (XDG data home) — the one place everything hickok
+    persists lives under: SQL caches/dumps, session transcripts, …"""
     base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
-    return Path(base) / "hickok" / "sql"
+    return Path(base) / "hickok"
+
+
+def runs_dir() -> Path:
+    return data_home() / "sql"
 
 
 def _host(url: str) -> str:

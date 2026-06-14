@@ -144,7 +144,7 @@ def cmd_call(args) -> None:
 
     c.info(f"{len(items)} finding(s) dealt by wraith")
     c.rule("the table")
-    for f in items:
+    for f in findings.by_severity(items):          # worst first, so the leads stand out
         sev, title, target = f.get("severity", "?"), f.get("title", ""), f.get("target", "")
         mark = c._accent("  ⮕ shell") if findings.is_foothold(title) else ""
         c.plain(f"  [{sev}] {title}  {c._c(DIM, target)}{mark}")

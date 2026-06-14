@@ -20,6 +20,20 @@ def test_footholds_filters_actionable():
     assert {f["target"] for f in foot} == {"http://t/ping", "http://t/render"}
 
 
+def test_is_foothold_covers_more_code_execution_titles():
+    assert findings.is_foothold("OS Command Injection in 'q'") is True
+    assert findings.is_foothold("Insecure deserialization of session") is True
+    assert findings.is_foothold("Unrestricted file upload") is True
+    assert findings.is_foothold("Open redirect") is False
+
+
+def test_by_severity_orders_worst_first():
+    items = [{"severity": "low"}, {"severity": "Critical"}, {"severity": "medium"},
+             {"severity": "weird"}]
+    assert [f["severity"] for f in findings.by_severity(items)] == \
+        ["Critical", "medium", "low", "weird"]
+
+
 def test_load_reads_wraith_json(tmp_path):
     p = tmp_path / "findings.json"
     p.write_text(json.dumps([{"title": "x", "severity": "Low", "target": "http://t/"}]))

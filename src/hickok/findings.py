@@ -13,9 +13,24 @@ from pathlib import Path
 
 # Finding titles that imply server-side code execution -> a reverse shell.
 _FOOTHOLD = (
-    "command injection", "remote code", "rce", "code execution",
+    "command injection", "os command", "remote code", "rce", "code execution",
     "server-side template injection", "ssti", "deserial", "file upload",
+    "expression language", "ognl", "struts", "shellshock", "log4", "spel",
+    "arbitrary file write", "unrestricted upload", "webshell",
 )
+
+# Severity order for sorting the table — worst first.
+_SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4, "informational": 4}
+
+
+def severity_rank(sev: str) -> int:
+    """A sortable rank for a severity label (unknown sorts last-but-one)."""
+    return _SEV_RANK.get((sev or "").strip().lower(), 5)
+
+
+def by_severity(findings: list[dict]) -> list[dict]:
+    """Findings ordered worst-severity first (stable within a severity)."""
+    return sorted(findings, key=lambda f: severity_rank(f.get("severity", "")))
 
 
 def load(path) -> list[dict]:

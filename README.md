@@ -55,10 +55,15 @@ hickok>
   sessions          list connected shells
   payloads          reverse-shell one-liners for your LHOST
   cmd 1 id          run a command on session 1
-  upgrade 1         turn a dumb shell into a PTY
-  interact 1        attach (detach with Ctrl-])
-  kill 1            drop a session
+  upgrade [1]       full PTY, sized to your terminal (id optional if only one)
+  interact [1]      attach (detach with Ctrl-])
+  kill [1]          drop a session
 ```
+
+A dropped shell announces itself (no silently-lost footholds), and every session
+is **logged to a transcript** under `~/.local/share/hickok/sessions/` for your
+report. `upgrade` spawns a PTY *and* matches its `TERM` and window size to your
+terminal, so `clear`, `vi` and friends behave once you `interact`.
 
 ## SQL injection — `hickok sql`
 
