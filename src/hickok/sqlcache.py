@@ -26,12 +26,15 @@ def runs_dir() -> Path:
     return Path(base) / "hickok" / "sql"
 
 
+def _host(url: str) -> str:
+    return (urlsplit(url).hostname or "target").replace(":", "_")
+
+
 def _key(url: str, param: str) -> str:
     u = urlsplit(url)
     sig = f"{u.scheme}://{u.netloc}{u.path}|{param}"
     digest = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:10]
-    host = (u.hostname or "target").replace(":", "_")
-    return f"{host}_{param}_{digest}"
+    return f"{_host(url)}_{param}_{digest}"
 
 
 def _safe(s: str) -> str:
@@ -49,9 +52,7 @@ def save_dump(url: str, param: str, table: str, cols, rows, out_dir=None) -> "Pa
     if out_dir:
         path = Path(out_dir).expanduser() / f"{_safe(table)}.csv"
     else:
-        u = urlsplit(url)
-        host = (u.hostname or "target").replace(":", "_")
-        path = runs_dir() / "dumps" / f"{host}_{_safe(param)}_{_safe(table)}.csv"
+        path = runs_dir() / "dumps" / f"{_host(url)}_{_safe(param)}_{_safe(table)}.csv"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8", newline="") as fh:

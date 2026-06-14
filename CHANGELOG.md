@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.16]
+
+### Changed
+- The quote-free encoding now covers the **whole** UNION path, not just the
+  markers: catalog predicates baked into the queries (`type='table'`,
+  `table_schema='public'`, …) are rewritten quote-free too, so `tables` /
+  `columns` / `databases` over UNION also survive a single-quote-filtering WAF
+  (previously only MySQL, which has no such literals, did).
+
+### Fixed
+- A dumped row whose cell value happened to contain the internal column
+  separator could be shorter/longer than the header and crash the table
+  printer with an index error; the printer is now length-safe.
+
 ## [0.7.15]
 
 ### Added

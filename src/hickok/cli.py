@@ -449,12 +449,13 @@ def _save_dump(c, oracle, table, cols, rows, out_dir=None) -> None:
 
 
 def _print_table(c, cols, rows) -> None:
-    widths = [max(len(cols[i]), *(len(r[i]) for r in rows)) if rows else len(cols[i])
-              for i in range(len(cols))]
+    def cell(r, i):                       # a row can be short/long if a value held a
+        return r[i] if i < len(r) else ""  # column separator — never index out of range
+    widths = [max([len(cols[i])] + [len(cell(r, i)) for r in rows]) for i in range(len(cols))]
     c.plain("  " + c._c(DIM, " | ".join(h.ljust(widths[i]) for i, h in enumerate(cols))))
     c.plain("  " + c._c(DIM, "-+-".join("-" * w for w in widths)))
     for r in rows:
-        c.plain("  " + " | ".join(v.ljust(widths[i]) for i, v in enumerate(r)))
+        c.plain("  " + " | ".join(cell(r, i).ljust(widths[i]) for i in range(len(cols))))
 
 
 def _sql_repl(c, oracle, prof, union, out_dir=None) -> None:

@@ -83,6 +83,8 @@ def test_union_payloads_carry_no_quote_characters():
         sent.clear()
         sqli.union_setup(_Http(), o, dbms)               # marker probe
         sqli.union_value(_Http(), o, dbms, 4, 0, "SELECT version()")
+        sqli.union_databases(_Http(), o, dbms, 4, 0)     # catalog predicate: type='table' / 'public'
+        sqli.union_tables(_Http(), o, dbms, 4, 0)
         sqli.union_columns(_Http(), o, dbms, 4, 0, "app_users")
         sqli.union_dump(_Http(), o, dbms, 4, 0, "app_users", ["a", "b"])
         assert all("%27" not in u and "'" not in u for u in sent), (dbms, sent)
@@ -109,6 +111,24 @@ def test_save_dump_writes_a_csv_with_header_and_rows(tmp_path, monkeypatch):
     out = sqlcache.save_dump("http://host/p.php?id=1", "id", "level1_users",
                              ["id"], [["1"]], out_dir=tmp_path / "engagement")
     assert out == tmp_path / "engagement" / "level1_users.csv" and out.exists()
+
+
+def test_print_table_survives_a_ragged_row():
+    """A cell value can contain a column separator, yielding a row with more/fewer
+    fields than the header. Printing must not index out of range."""
+    from hickok import cli
+
+    out = []
+
+    class _C:
+        def plain(self, s):
+            out.append(s)
+
+        def _c(self, color, s):
+            return s
+
+    cli._print_table(_C(), ["a", "b", "c"], [["1", "2"], ["x", "y", "z", "extra"]])
+    assert len(out) == 4                                 # header + rule + 2 rows, no crash
 
 
 def test_strlit_decodes_to_the_original_text():
