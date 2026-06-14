@@ -12,9 +12,11 @@ a dict lookup on read, so a cache hit costs nothing.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -30,6 +32,35 @@ def _key(url: str, param: str) -> str:
     digest = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:10]
     host = (u.hostname or "target").replace(":", "_")
     return f"{host}_{param}_{digest}"
+
+
+def _safe(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]", "_", s)[:64] or "x"
+
+
+def save_dump(url: str, param: str, table: str, cols, rows, out_dir=None) -> "Path | None":
+    """Write a dumped table to a CSV (header + rows). Returns the path, or None if
+    it couldn't be written.
+
+    Default location is runs_dir()/dumps with a host/param/table name, so dumps
+    from any target land in one place without colliding. With `out_dir` (the
+    `--output` override) the file is just `<table>.csv` in that directory — the
+    user owns the layout there."""
+    if out_dir:
+        path = Path(out_dir).expanduser() / f"{_safe(table)}.csv"
+    else:
+        u = urlsplit(url)
+        host = (u.hostname or "target").replace(":", "_")
+        path = runs_dir() / "dumps" / f"{host}_{_safe(param)}_{_safe(table)}.csv"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(list(cols))
+            w.writerows(rows)
+    except OSError:
+        return None
+    return path
 
 
 class Cache:

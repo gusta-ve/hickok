@@ -3,6 +3,29 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.15]
+
+### Added
+- `dump` now **saves the table to a CSV** and prints where (`N row(s) saved →
+  …/hickok/sql/dumps/<host>_<param>_<table>.csv`) — the data outlives the session
+  instead of only scrolling past. A re-dump overwrites in place; partial rows kept
+  on Ctrl-C are saved too.
+- `-o/--output DIR` to choose where dumps go (e.g. an engagement folder); the file
+  there is a plain `<table>.csv`. Without it, dumps land in the standard data dir
+  as before.
+
+- Right under `DBMS:`, an **overview of the databases** — the current database
+  always, and the full list when the catalog is reachable (the current one marked
+  `*`) — so there's an immediate starting point for where to dig. New `databases`
+  building block (blind and UNION) behind it.
+
+### Changed
+- Bigger, smarter name-guessing when the catalog is filtered: the common-table
+  list is much longer, and with the database name known (read first) `tables`
+  also tries `<db>_<name>` (shared-hosting / prefixed schemas) and common CMS/app
+  prefixes (`wp_`, `phpbb_`, `tbl_`, …). Likeliest names first, de-duplicated, so
+  a hit comes early.
+
 ## [0.7.14]
 
 ### Fixed

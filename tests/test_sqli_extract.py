@@ -88,6 +88,29 @@ def test_union_payloads_carry_no_quote_characters():
         assert all("%27" not in u and "'" not in u for u in sent), (dbms, sent)
 
 
+def test_save_dump_writes_a_csv_with_header_and_rows(tmp_path, monkeypatch):
+    """A dump is persisted to CSV (header + rows) so it survives the session, and
+    the path is returned so the CLI can show where it went."""
+    import csv as _csv
+
+    from hickok import sqlcache
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    path = sqlcache.save_dump("http://host:80/p.php?id=1", "id", "level1_users",
+                              ["id", "username", "password"],
+                              [["1", "Hornoxe", "thatwaseasy"]])
+    assert path is not None and path.exists() and path.suffix == ".csv"
+    assert str(path).startswith(str(tmp_path))           # default lands under XDG data home
+    rows = list(_csv.reader(path.read_text(encoding="utf-8").splitlines()))
+    assert rows[0] == ["id", "username", "password"]
+    assert rows[1] == ["1", "Hornoxe", "thatwaseasy"]
+
+    # --output overrides the directory; the file there is just <table>.csv
+    out = sqlcache.save_dump("http://host/p.php?id=1", "id", "level1_users",
+                             ["id"], [["1"]], out_dir=tmp_path / "engagement")
+    assert out == tmp_path / "engagement" / "level1_users.csv" and out.exists()
+
+
 def test_strlit_decodes_to_the_original_text():
     """Quote-free literals are just an encoding — they must round-trip to the same
     string the DBMS renders, or output matching would silently miss them."""
@@ -112,4 +135,23 @@ def test_common_tables_probes_by_name_without_information_schema():
 
     found = list(sqli.common_tables(_O(), names=["users", "ghosts", "admin"]))
     assert found == ["users"]
+    assert not any("information_schema" in s for s in seen)
+
+
+def test_common_tables_tries_db_prefixed_and_more_names():
+    """With the database name known, the guesser also probes `<db>_<name>` — and
+    the plain common list is broad enough to cover ordinary names too."""
+    seen = []
+
+    class _O:
+        cache = None
+
+        def ask(self, cond):
+            seen.append(cond)
+            return "FROM shop_customers)" in cond        # only the db-prefixed one exists
+
+    found = list(sqli.common_tables(_O(), db="shop"))
+    assert found == ["shop_customers"]
+    assert any("FROM shop_customers)" in s for s in seen)  # <db>_<name> was tried
+    assert any("FROM users)" in s for s in seen)           # plain names still tried
     assert not any("information_schema" in s for s in seen)

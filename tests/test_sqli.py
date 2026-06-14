@@ -85,6 +85,8 @@ def test_union_walks_and_dumps_a_table():
     assert oracle is not None
     setup = sqli.union_setup(net, oracle, "sqlite")
     assert setup == (2, 0)                     # 2 columns, the first is reflected
+    dbs = sqli.union_databases(net, oracle, "sqlite", *setup)
+    assert "main" in dbs                       # the attached database, read via UNION
     cols = sqli.union_columns(net, oracle, "sqlite", *setup, "t")
     assert cols == ["a", "b"]
     rows = sqli.union_dump(net, oracle, "sqlite", *setup, "t", cols)
