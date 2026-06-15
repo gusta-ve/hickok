@@ -139,6 +139,8 @@ class Console:
             self._emit("  " + self._accent("◆ ") + self._c(BOLD, "showdown mode")
                        + self._c(DIM, " — hickok plays the catch out"))
         self._emit()
+        self._emit("  " + self._c(DIM, "github.com/gusta-ve/hickok · authorized use only"))
+        self._emit()
 
     # --------------------------------------------------------------- lines
     def info(self, msg) -> None:
