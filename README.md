@@ -129,13 +129,19 @@ the cache and re-extracts.
 **Evasion / OPSEC:**
 
 ```bash
-hickok sql -u '...' -p id \
+hickok sql -u '...' -p id --ghost  # one flag: Tor (fail-closed) + random UA + throttle
+
+hickok sql -u '...' -p id \        # …or set the pieces yourself:
   --random-agent \                 # a random real browser User-Agent
   --tor \                          # route via Tor, verified (see below)
   --cookie 'sid=…' -H 'X-Api: …' \ # authenticated injection
   --delay 0.3 -v 2 \               # throttle; print every payload
   --dump users -o ./loot           # non-interactive: dump to ./loot/users.csv and exit
 ```
+
+`--ghost` is the max-opsec preset — the safest footprint in one word (Tor +
+random UA + low-and-slow), each piece still overridable with its own flag. The
+identical flag is in [wraith](https://github.com/gusta-ve/wraith).
 
 `--tor` is **zero-dependency, leak-aware and fail-closed**: hickok speaks SOCKS5
 itself (stdlib), auto-detects the Tor port (9050 / 9150), resolves the target

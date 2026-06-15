@@ -213,6 +213,14 @@ def cmd_sql(args) -> None:
     c = _console(args)
     c.banner()
 
+    if getattr(args, "ghost", False):           # max-opsec preset — fill in each piece unless set
+        c.info("ghost mode — Tor (fail-closed) · random UA · low-and-slow")
+        args.tor = True
+        if not args.user_agent:
+            args.random_agent = True
+        if not args.delay:
+            args.delay = 0.5
+
     if args.check_tor:                          # verify anonymity setup and exit
         try:
             net = http.Http(proxy=args.proxy, tor=args.tor, timeout=args.timeout)
@@ -709,6 +717,9 @@ def build_parser() -> argparse.ArgumentParser:
     sq.add_argument("-o", "--output", metavar="DIR",
                     help="directory to write dumped CSVs to (default: ~/.local/share/hickok/sql/dumps)")
     ev = sq.add_argument_group("evasion / opsec")
+    ev.add_argument("--ghost", action="store_true",
+                    help="max-opsec preset: Tor (fail-closed) + random UA + delay — "
+                         "the safest footprint for an attack (override any piece with its own flag)")
     ev.add_argument("--random-agent", action="store_true", help="use a random real browser User-Agent")
     ev.add_argument("-A", "--user-agent", metavar="UA", help="explicit User-Agent")
     ev.add_argument("-H", "--header", action="append", metavar="'K: V'", help="extra header (repeatable)")

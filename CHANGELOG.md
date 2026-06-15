@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.25]
+
+### Added
+- **`hickok sql --ghost` — one flag for the safest footprint.** A max-opsec preset
+  that routes through **Tor (verified, fail-closed)**, sends a **random real-browser
+  User-Agent** and **paces requests** (delay) — the cautious setup for working an
+  injection on a real target. Any piece is still overridable with its own flag. The
+  same `--ghost` lands in [wraith](https://github.com/gusta-ve/wraith), so a stealth
+  run is one word across the pair.
+
 ## [0.7.24]
 
 ### Added
