@@ -77,6 +77,75 @@ def _reflecting_sqlite_server():
     return srv
 
 
+def _small_diff_server():
+    """A big static page whose only change on a true vs false condition is a single
+    line ("WELCOME BACK" / "INVALID LOGIN") — a boolean tell that's a tiny fraction
+    of the response, the case a fixed similarity cutoff misses. Numeric injection,
+    no reflection of data."""
+    db = sqlite3.connect(":memory:", check_same_thread=False)
+    db.executescript("CREATE TABLE u (id INTEGER, secret TEXT); INSERT INTO u VALUES (1, 'PASS');")
+    lock = threading.Lock()
+    pad = "the deadwood telegraph and trust company ledger. " * 40   # bulk up the page
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            raw = (parse_qs(urlsplit(self.path).query).get("id") or ["1"])[0]
+            try:
+                with lock:
+                    row = db.execute(f"SELECT secret FROM u WHERE id={raw}").fetchone()
+            except Exception:
+                row = None
+            tell = "WELCOME BACK" if row else "INVALID LOGIN"
+            body = f"<html><body><div>{pad}</div><p>{tell}</p><div>{pad}</div></body></html>".encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_calibrate_finds_a_small_tell_in_a_big_page():
+    """A one-line boolean differential in a large page must still calibrate (it was
+    missed by the old fixed 0.95 similarity cutoff), and extract correctly."""
+    srv = _small_diff_server()
+    port = srv.server_address[1]
+    net = http.Http(timeout=5)
+    oracle = sqli.calibrate(net, f"http://127.0.0.1:{port}/?id=1", "id", "1")
+    assert oracle is not None                      # the tiny tell is found
+    assert oracle.ask("1=1") and not oracle.ask("1=2")
+    out = sqli.extract_str(oracle, sqli._PROFILES["sqlite"], "SELECT secret FROM u WHERE id=1")
+    srv.shutdown()
+    assert out == "PASS"
+
+
+def test_calibrate_ignores_a_static_page():
+    """A page that never changes (no oracle) must not be mistaken for one."""
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            body = b"<html><body>welcome to the static page</body></html>"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    net = http.Http(timeout=5)
+    oracle = sqli.calibrate(net, f"http://127.0.0.1:{srv.server_address[1]}/?id=1", "id", "1")
+    srv.shutdown()
+    assert oracle is None
+
+
 def test_union_walks_and_dumps_a_table():
     srv = _reflecting_sqlite_server()
     port = srv.server_address[1]

