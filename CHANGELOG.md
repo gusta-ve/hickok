@@ -3,6 +3,25 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.24]
+
+### Added
+- **One `dump` group with three clear targets, and dumping a *chosen* database.**
+  The SQL console's dump commands are now `dump table <name>` (one table),
+  `dump database [<name>]` (every table in a database — the current one if no name)
+  and `dump all` (every reachable database). When the catalog shows more than one
+  database, `dump database <name>` reaches into a specific one and `dump all` sweeps
+  them all, skipping the engine's own system databases. Cross-database reads work
+  where one injection point allows them (MySQL, MSSQL); on SQLite and Postgres, which
+  expose a single database per connection, naming another is refused with a clear
+  note instead of a wrong query. Each table still streams to the screen and a CSV,
+  and Ctrl-C stops the sweep keeping everything pulled so far.
+
+### Changed
+- The SQL console's help is regrouped into a `walk` section and a `dump` section so
+  the commands read as a short tutorial. `dump <table>` (no subcommand) still works
+  as a shorthand for `dump table <table>`.
+
 ## [0.7.23]
 
 ### Added

