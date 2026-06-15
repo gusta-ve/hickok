@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.23]
+
+### Added
+- **`dump-all` — dump the whole database in one command.** The SQL console walks
+  every table in turn, printing and saving a CSV for each, then tallies the rows
+  across the database; `dump *` (also `dump all` / `dump database`) does the same.
+  Ctrl-C stops the sweep but keeps and saves everything pulled up to that point —
+  handy on a slow boolean-blind walk. The single-table `dump <table>` is unchanged.
+
 ## [0.7.22]
 
 ### Fixed

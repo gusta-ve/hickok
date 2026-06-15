@@ -181,10 +181,11 @@ def cmd_eights(args) -> None:
 
 
 _SQL_HELP = """  walk the database (boolean-blind):
-  banner                DBMS version       user / db        current user / database
-  databases             list databases     tables           list tables
-  columns <table>       a table's columns  dump <table>     dump its rows
-  query "<SELECT>"      extract one value  help / exit      this / quit
+  banner                DBMS version          user / db           current user / database
+  databases             list databases        tables              list tables
+  columns <table>       a table's columns     dump <table>        dump one table's rows
+  dump-all (dump *)     dump every table      query "<SELECT>"    extract one value
+  help / exit           this / quit
 """
 
 
@@ -436,6 +437,40 @@ def _walk_dump(oracle, prof, union, table, console=None):
     return cols, rows
 
 
+def _do_dump(c, oracle, prof, union, table, out_dir) -> int:
+    """Dump one table end to end: pull every row, print it, save a CSV. Prints and
+    saves whatever was pulled even if the walk is interrupted. Returns the count."""
+    cols, rowgen = _walk_dump(oracle, prof, union, table, console=c)
+    rows = []
+    try:
+        for r in rowgen:
+            rows.append(r)
+    finally:
+        _print_table(c, cols, rows)
+        _save_dump(c, oracle, table, cols, rows, out_dir)
+    return len(rows)
+
+
+def _dump_all(c, oracle, prof, union, out_dir) -> None:
+    """Dump the whole database — every table in turn. Ctrl-C stops the sweep but
+    keeps (and saves) everything pulled up to that point."""
+    tbls = _tables(c, oracle, prof, union)
+    if not tbls:
+        c.warn("no tables to dump")
+        return
+    c.good(f"dumping every table ({len(tbls)}): {', '.join(tbls)}")
+    total = 0
+    for t in tbls:
+        c.plain("")
+        c.good(f"— {t} —")
+        try:
+            total += _do_dump(c, oracle, prof, union, t, out_dir)
+        except KeyboardInterrupt:
+            c.warn(f"interrupted on {t} — stopping the sweep (kept what was pulled)")
+            break
+    c.good(f"dumped {total} row(s) across the database")
+
+
 def _save_dump(c, oracle, table, cols, rows, out_dir=None) -> None:
     """Persist a dump to CSV and tell the user where — so the data survives the
     session instead of only scrolling past in the terminal."""
@@ -501,18 +536,16 @@ def _sql_repl(c, oracle, prof, union, out_dir=None) -> None:
                     continue
                 for col in _columns(c, oracle, prof, union, arg):
                     c.plain(f"  {col}")
+            elif cmd in ("dump-all", "dumpall", "dump-db", "dumpdb"):
+                _dump_all(c, oracle, prof, union, out_dir)
             elif cmd == "dump":
                 if not arg:
-                    c.warn("usage: dump <table>")
+                    c.warn("usage: dump <table>   (or `dump *` / `dump-all` for the whole database)")
                     continue
-                cols, rowgen = _walk_dump(oracle, prof, union, arg, console=c)
-                rows = []
-                try:
-                    for r in rowgen:
-                        rows.append(r)
-                finally:
-                    _print_table(c, cols, rows)   # show whatever we pulled, even on interrupt
-                    _save_dump(c, oracle, arg, cols, rows, out_dir)
+                if arg.lower() in ("*", "all", "db", "database", "everything"):
+                    _dump_all(c, oracle, prof, union, out_dir)
+                else:
+                    _do_dump(c, oracle, prof, union, arg, out_dir)   # prints + saves inside
             elif cmd == "query":
                 if not arg:
                     c.warn('usage: query "<SELECT returning one value>"')
