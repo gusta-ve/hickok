@@ -3,6 +3,26 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.21]
+
+### Changed
+- **Blind/boolean extraction is dramatically faster and more reliable.** The
+  TRUE/FALSE comparison now runs on just the region of the page that reacts to the
+  condition — the shared chrome is trimmed off — so the diff works on a handful of
+  characters instead of the whole page. A walk that took minutes finishes in about
+  a second, and bits stay reliable even when the tell is one line in a big page.
+- Character extraction is **ASCII-first** (a short search for the common case),
+  roughly halving the requests per character.
+- A page that **reflects the injected payload** no longer adds per-request noise:
+  the payload is stripped from the response before the comparison, so forms that
+  echo your input can't flip bits.
+
+### Fixed
+- A blind catalog walk against a **WAF that blocks the catalog**
+  (`information_schema` / `sqlite_master` / `pragma`) no longer runs the row/column
+  count away into a near-infinite extraction — a filtered count yields nothing and
+  the walk falls back to by-name guessing instead of hanging.
+
 ## [0.7.20]
 
 ### Fixed

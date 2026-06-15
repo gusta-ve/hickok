@@ -64,6 +64,26 @@ def test_anomalous_page_is_flagged_not_silently_false():
     assert o.blocked == 1
 
 
+def test_blocked_catalog_count_does_not_run_away():
+    """A blind catalog walk whose count query is filtered (every probe anomalous)
+    must yield nothing — so the caller falls back to by-name — instead of reading a
+    runaway count and trying to extract millions of rows."""
+    class _Blocked:
+        cache = None
+        count = 0
+
+        def __init__(self):
+            self.blocked = 0
+
+        def ask(self, cond):
+            self.blocked += 1           # every probe is a WAF block (a third state)
+            return True                 # ...biased True, which would run the count away
+
+    prof = sqli._PROFILES["sqlite"]
+    out = list(sqli._list(_Blocked(), prof, prof["tables_n"], prof["table_at"]))
+    assert out == []                    # bailed on the anomaly, extracted nothing
+
+
 def test_union_payloads_carry_no_quote_characters():
     """A WAF that strips single quotes breaks every quoted literal. The UNION path
     must encode its markers/separators/table names quote-free, so reflection still

