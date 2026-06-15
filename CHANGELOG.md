@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.28]
+
+### Changed
+- Banner is one tidy block again: title/version, then
+  `gusta-ve · github.com/gusta-ve/hickok · authorized use only`, then the slim
+  `Wild Bill Hickok · Deadwood, 1876` as the last line.
+
 ## [0.7.27]
 
 ### Changed
