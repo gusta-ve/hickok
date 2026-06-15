@@ -134,7 +134,6 @@ class Console:
         self._emit("  " + self._c(BOLD + _fg(self.theme["accent"]), "hickok")
                    + self._c(DIM, "  ·  reverse-shell handler & post-exploitation")
                    + "   " + self._c(DIM, f"v{__version__}"))
-        self._emit("  " + self._c(DIM, "gusta-ve · github.com/gusta-ve/hickok · authorized use only"))
         self._emit("  " + self._c(DIM, "Wild Bill Hickok · Deadwood, 1876"))
         if self.showdown:
             self._emit("  " + self._accent("◆ ") + self._c(BOLD, "showdown mode")
