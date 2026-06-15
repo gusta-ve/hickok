@@ -187,6 +187,18 @@ rises, lays down the dead man's hand, and calls it — *the house folds.* The re
 is for actually getting in; plain runs and a plain listener stay quiet. Run
 `hickok showdown` again to turn it off.
 
+## A range to practice on
+
+New to this, or want a safe target to sharpen `hickok sql` against?
+[**deadwood**](https://github.com/gusta-ve/deadwood) is a local, leveled
+web-security range (tutorial → impossible) built for exactly this — point hickok
+at a room and walk it:
+
+```bash
+pipx install deadwood-sec && deadwood serve
+hickok sql -u 'http://127.0.0.1:8666/l/first-blood/app?id=1' -p id --dump secrets
+```
+
 ## Tests
 
 ```bash
