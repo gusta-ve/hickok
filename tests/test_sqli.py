@@ -124,6 +124,50 @@ def test_calibrate_finds_a_small_tell_in_a_big_page():
     assert out == "PASS"
 
 
+def _quote_stripping_server():
+    """A boolean differential where the app strips quotes from input (a common
+    filter). Calibration must still confirm the oracle — its confirm conditions
+    have to be quote-free, or a quote-stripping target falls back to slow time."""
+    db = sqlite3.connect(":memory:", check_same_thread=False)
+    db.executescript("CREATE TABLE u (id INTEGER, secret TEXT); INSERT INTO u VALUES (1, 'PASS');")
+    lock = threading.Lock()
+    pad = "deadwood trust ledger row. " * 40
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            raw = (parse_qs(urlsplit(self.path).query).get("id") or ["1"])[0]
+            cleaned = raw.replace("'", "").replace('"', "")          # the quote filter
+            try:
+                with lock:
+                    row = db.execute(f"SELECT secret FROM u WHERE id={cleaned}").fetchone()
+            except Exception:
+                row = None
+            tell = "WELCOME BACK" if row else "INVALID LOGIN"
+            body = f"<html><body><div>{pad}</div><p>{tell}</p><div>{pad}</div></body></html>".encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_calibrate_works_when_quotes_are_stripped():
+    """Quote-free confirm conditions mean a quote-stripping filter doesn't defeat
+    boolean calibration (it used to, falling back to slow time-based)."""
+    srv = _quote_stripping_server()
+    net = http.Http(timeout=5)
+    oracle = sqli.calibrate(net, f"http://127.0.0.1:{srv.server_address[1]}/?id=1", "id", "1")
+    assert oracle is not None
+    assert oracle.ask("1=1") and not oracle.ask("1=2")
+    srv.shutdown()
+
+
 def test_calibrate_ignores_a_static_page():
     """A page that never changes (no oracle) must not be mistaken for one."""
 

