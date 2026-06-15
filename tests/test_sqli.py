@@ -207,6 +207,65 @@ def test_union_walks_and_dumps_a_table():
     assert ["x1", "y1"] in rows and ["x2", "y2"] in rows
 
 
+def _numeric_union_server():
+    """A 3-column numeric injection (`SELECT id,name,role ... WHERE id={raw}`) whose
+    out-of-range `ORDER BY` error page is *nearly identical* to a normal page — the
+    same big table chrome plus one small error line. This is the in-band/UNION case
+    (deadwood's First Blood) where the old fixed 0.95 cutoff read the error page as a
+    valid column and overshot the column count, so every UNION probe then failed the
+    column-count match and the engine wrongly reported no UNION."""
+    db = sqlite3.connect(":memory:", check_same_thread=False)
+    db.executescript(
+        "CREATE TABLE employees (id INTEGER, name TEXT, role TEXT);"
+        "INSERT INTO employees VALUES (1,'Wild Bill','Marshal');"
+        "CREATE TABLE secrets (label TEXT, value TEXT);"
+        "INSERT INTO secrets VALUES ('flag','DEADWOOD{x}');"
+    )
+    lock = threading.Lock()
+    chrome = "<tr><td>deadwood trust staff directory ledger row</td></tr>" * 40
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            raw = (parse_qs(urlsplit(self.path).query).get("id") or ["1"])[0]
+            try:
+                with lock:
+                    rows = db.execute(
+                        f"SELECT id, name, role FROM employees WHERE id={raw}").fetchall()
+                note = ""
+            except Exception as exc:
+                rows, note = [], f"<p>query error: {exc}</p>"     # small, in-band leak
+            cells = "".join(f"<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td></tr>" for r in rows)
+            body = f"<html><body><table>{chrome}{cells}</table>{note}</body></html>".encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_union_setup_does_not_overshoot_when_order_by_error_resembles_base():
+    """The column count must stop at the real width (3) even when the out-of-range
+    ORDER BY error page is >95% similar to a normal page, and then find a reflected
+    column. Regression for the First Blood case where UNION was missed entirely."""
+    srv = _numeric_union_server()
+    port = srv.server_address[1]
+    net = http.Http(timeout=5)
+    oracle = sqli.calibrate(net, f"http://127.0.0.1:{port}/?id=1", "id", "1")
+    assert oracle is not None and oracle.context == "numeric"
+    setup = sqli.union_setup(net, oracle, "sqlite")
+    srv.shutdown()
+    assert setup is not None, "UNION should be found"
+    ncols, refcol = setup
+    assert ncols == 3, f"column count overshot: {ncols}"
+    assert refcol is not None
+
+
 def _blind_sleep_server():
     """A totally blind app: same page always, but a true condition can sleep —
     only time-based works here."""

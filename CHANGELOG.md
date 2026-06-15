@@ -3,6 +3,23 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.22]
+
+### Fixed
+- **UNION column count no longer overshoots when the out-of-range `ORDER BY` error
+  page looks like a normal page.** On an in-band target that leaks errors as one
+  small line in a big page (a classic staff-directory lookup), the error page can be
+  >95% similar to a normal one — the old fixed 0.95 cutoff read it as a valid column,
+  so the count ran past the real width and every UNION probe then failed the
+  column-count match. The engine wrongly concluded there was no UNION and fell back
+  to slow boolean-blind. The count is now decided by *relative* similarity (each
+  `ORDER BY n` against a deliberately-broken `ORDER BY 9999`), so it stops at the
+  real width. `auto` and `--technique union` now take the fast in-band path on these
+  targets instead of grinding bit-by-bit.
+- The reflected-column probe now places a single string marker with `NULL` in the
+  other columns (was a string in *every* column), so it survives strict UNION type
+  checking on **Postgres/MSSQL** instead of erroring out.
+
 ## [0.7.21]
 
 ### Changed
