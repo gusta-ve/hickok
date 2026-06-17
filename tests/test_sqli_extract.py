@@ -59,7 +59,7 @@ def test_anomalous_page_is_flagged_not_silently_false():
 
     o = sqli.Oracle(_Http(), "http://t/p?id=1", "id", "1", "{v} AND ({c})",
                     "numeric", "the normal article listing page goes here",
-                    "an empty no-results page goes here", threshold=0.6)
+                    "an empty no-results page goes here")
     o.ask("(SELECT count(*) FROM information_schema.tables)>1")
     assert o.blocked == 1
 
@@ -108,6 +108,27 @@ def test_union_payloads_carry_no_quote_characters():
         sqli.union_columns(_Http(), o, dbms, 4, 0, "app_users")
         sqli.union_dump(_Http(), o, dbms, 4, 0, "app_users", ["a", "b"])
         assert all("%27" not in u and "'" not in u for u in sent), (dbms, sent)
+
+
+def test_union_markers_are_per_run_and_quote_free():
+    """Each oracle mints its own UNION markers (no static on-wire fingerprint), the
+    three are distinct, and they survive a quote-stripping WAF — they reach the wire
+    encoded via _strlit, never quoted."""
+    a, b = sqli._new_marks(), sqli._new_marks()
+    assert a != b                                       # randomized per run
+    assert len({a.umark, a.rowsep, a.colsep}) == 3      # distinct delimiters
+    for dbms in ("mysql", "sqlite", "postgres", "mssql"):
+        for tag in a:
+            assert "'" not in sqli._strlit(dbms, tag)
+
+
+def test_oracle_carries_its_own_markers():
+    """A constructed oracle gets a marker set, so the union helpers never fall back to
+    the shared defaults on a real walk."""
+    o = sqli.Oracle(object(), "http://t/p?id=1", "id", "1", "{v} AND ({c})",
+                    "numeric", "true", "false")
+    assert o.marks != sqli._DEFAULT_MARKS
+    assert sqli._marks_of(o) is o.marks
 
 
 def test_save_dump_writes_a_csv_with_header_and_rows(tmp_path, monkeypatch):

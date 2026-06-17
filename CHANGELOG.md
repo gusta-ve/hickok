@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.29]
+
+### Changed
+- **UNION markers are randomized per run.** The delimiters hickok wraps around
+  extracted data on the in-band/UNION path were fixed strings (`hKx9q`, `~r0w~`,
+  `~c0l~`) — a static signature a WAF/IDS could match on, and a constant that could
+  collide with a value that happened to contain it. Each walk now mints its own
+  random, tilde-wrapped set, so there is nothing fixed on the wire to fingerprint and
+  a re-run shakes off any collision. Extraction is otherwise identical.
+- Dropped a dead `threshold` argument from the SQL oracle: it was always recomputed
+  from the trimmed TRUE/FALSE cores, so the value passed in never took effect. No
+  behaviour change — just less to mislead the next reader.
+
 ## [0.7.28]
 
 ### Changed
