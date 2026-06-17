@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.32]
+
+### Fixed
+- **The live "working" heartbeat can no longer garble output.** The spinner redraws
+  from a background thread while the main thread prints real lines; both wrote to
+  stdout (and flipped the same `_spinning` flag) with no synchronization, so a status
+  line emitted mid-walk could occasionally interleave with a spinner frame. A lock
+  now serializes the two, so each line lands whole.
+
 ## [0.7.31]
 
 ### Fixed

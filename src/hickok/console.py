@@ -62,6 +62,10 @@ class Console:
         self.verbose = int(verbose or 0)
         self._spinning = False   # a working-spinner line is currently drawn (TTY)
         self.showdown = None     # a Showdown (see showdown.py) when the mode is on
+        # The working-heartbeat (see _Working) redraws the spinner from a background
+        # thread while the main thread emits real output; both touch stdout and the
+        # _spinning flag, so a lock serializes them — no half-written, interleaved line.
+        self._lock = threading.Lock()
 
     def trace(self, msg, level: int = 1) -> None:
         """Verbose-only line (e.g. -v shows each SQLi payload). Silent without -v."""
@@ -69,25 +73,29 @@ class Console:
             self._emit(self._c(DIM, "      · ") + str(msg))
 
     def _emit(self, text: str = "") -> None:
-        if self._spinning:           # wipe the spinner line before real output lands
-            sys.stdout.write("\r\033[K")
-            self._spinning = False
-        print(text, flush=True)
+        with self._lock:
+            if self._spinning:           # wipe the spinner line before real output lands
+                sys.stdout.write("\r\033[K")
+                self._spinning = False
+            print(text, flush=True)
 
     def spinner(self, frame: str, label: str) -> None:
         """Draw one frame of a spinner — a single rewritten line, TTY only,
         auto-cleared by _emit before any real output. No newline."""
         if not sys.stdout.isatty():
             return
-        sys.stdout.write("\r\033[K" + self._accent(frame) + " " + self._c(DIM, label))
-        sys.stdout.flush()
-        self._spinning = True
+        line = "\r\033[K" + self._accent(frame) + " " + self._c(DIM, label)
+        with self._lock:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            self._spinning = True
 
     def spin_clear(self) -> None:
-        if self._spinning:
-            sys.stdout.write("\r\033[K")
-            sys.stdout.flush()
-            self._spinning = False
+        with self._lock:
+            if self._spinning:
+                sys.stdout.write("\r\033[K")
+                sys.stdout.flush()
+                self._spinning = False
 
     def working(self, label: str, count_fn=None):
         """A live heartbeat for a blocking call: a spinner that turns on its own

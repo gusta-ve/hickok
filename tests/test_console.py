@@ -1,3 +1,5 @@
+import threading
+
 from hickok.cli import _with_default_command
 from hickok.console import Console
 
@@ -30,6 +32,20 @@ def test_hand_reveal_draws_the_gunslinger(capsys):
     out = capsys.readouterr().out
     assert "dead man's hand" in out
     assert out.count("\n") > 40                  # the gunslinger art + the cards
+
+
+def test_emit_is_thread_safe(capsys):
+    """The working-heartbeat redraws from a background thread while the main thread
+    emits output; concurrent writers must each land a whole line, never interleave."""
+    c = Console(color=False, banner=False)
+    lines = [f"line-{i:03d}-end" for i in range(200)]
+    threads = [threading.Thread(target=c._emit, args=(s,)) for s in lines]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    emitted = [ln for ln in capsys.readouterr().out.split("\n") if ln]
+    assert sorted(emitted) == sorted(lines)      # every line intact, none merged
 
 
 def test_listen_is_the_default_command():
