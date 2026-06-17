@@ -47,6 +47,23 @@ def test_session_logs_transcript_and_fires_on_close(tmp_path):
     assert closed == [1]                       # the shell dropped on its own → notice fires
 
 
+def test_buffered_output_is_capped(monkeypatch):
+    """Output piling up while no one collects (a chatty shell left at the prompt) is
+    bounded — the oldest chunks drop instead of buffering forever."""
+    from hickok import session
+
+    monkeypatch.setattr(session, "_MAX_QUEUED_CHUNKS", 4)
+
+    async def run():
+        sess = ShellSession(3, _Reader([bytes([i]) for i in range(20)]), _Writer())
+        sess.start()
+        await sess._task
+        return sess
+
+    sess = asyncio.run(run())
+    assert sess._queue.qsize() == 4            # bounded to the cap, not all 20
+
+
 def test_deliberate_close_suppresses_the_died_notice():
     """A kill (close) must not fire the 'died' notice — that's reserved for shells
     that drop on their own."""

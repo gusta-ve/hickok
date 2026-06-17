@@ -6,6 +6,11 @@ import asyncio
 import sys
 import time
 
+# Cap the live replay buffer for a session with no active collector, so a chatty
+# shell left at the console can't grow it without bound (chunks are ~4 KiB). The
+# full stream is always on the transcript; this only bounds the in-memory tail.
+_MAX_QUEUED_CHUNKS = 2048
+
 
 class ShellSession:
     """One connected shell. A background task pumps inbound data either into a
@@ -51,7 +56,16 @@ class ShellSession:
                     sys.stdout.buffer.write(data)
                     sys.stdout.buffer.flush()
                 else:
-                    await self._queue.put(data)
+                    # No one is collecting (sitting at the console, not interacting):
+                    # keep the latest output for the next cmd/interact, but bound it —
+                    # drop the oldest chunk past the cap so a noisy shell can't grow
+                    # this without limit. The transcript above still has everything.
+                    if self._queue.qsize() >= _MAX_QUEUED_CHUNKS:
+                        try:
+                            self._queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                    self._queue.put_nowait(data)
         except Exception:
             pass
         finally:

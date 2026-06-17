@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.31]
+
+### Fixed
+- **A session's live buffer is now bounded.** While a shell sat at the console with
+  no one collecting its output (not interacting, between `cmd`s), everything it
+  printed was queued in memory unbounded — a chatty or runaway shell could grow that
+  without limit. The live replay buffer is now capped (the oldest chunks drop past
+  the cap); the per-session transcript still records the full stream, so nothing is
+  lost from the report.
+
 ## [0.7.30]
 
 ### Fixed
