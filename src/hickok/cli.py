@@ -44,6 +44,13 @@ def _quickstart(c: "Console") -> None:
 
 _COMMANDS = {"listen", "hand", "call", "showdown", "payloads", "eights", "sql"}
 
+# Cosmetic options understood before the subcommand (shared via parents=). The
+# default-command shim needs to know which consume a following token (`--theme X`)
+# and which stand alone, to find where the implicit `listen` belongs. Single source
+# of truth for that — keep in sync with the arguments _output_options() declares.
+_GLOBAL_VALUE_OPTS = {"--theme"}
+_GLOBAL_FLAG_OPTS = {"--no-color", "--no-banner"}
+
 # `hickok showdown` flips a mode that sticks between runs, so it's persisted here.
 _CONFIG_PATH = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "hickok" / "config.json"
 
@@ -69,17 +76,19 @@ class _Help(argparse.RawDescriptionHelpFormatter):
 
 
 def _with_default_command(argv):
-    """`hickok` / `hickok -l 9001` default to the `listen` handler."""
+    """`hickok` / `hickok -l 9001` default to the `listen` handler: insert `listen`
+    before the first token that is neither a global option nor a known command."""
     out = list(argv)
     i = 0
     while i < len(out):
         tok = out[i]
         if tok in ("-h", "--help", "--version"):
             return out
-        if tok == "--theme":
-            i += 2
+        base = tok.split("=", 1)[0]                  # --theme=ember → --theme
+        if base in _GLOBAL_VALUE_OPTS:
+            i += 1 if "=" in tok else 2              # joined form is one token; split, two
             continue
-        if tok in ("--no-color", "--no-banner"):
+        if tok in _GLOBAL_FLAG_OPTS:
             i += 1
             continue
         if tok not in _COMMANDS:
@@ -658,7 +667,9 @@ def _sql_repl(c, oracle, prof, dbms, union, out_dir=None) -> None:
 
 def _output_options() -> argparse.ArgumentParser:
     """Cosmetic options every command understands, shared via parents= so they
-    work in any position (`hickok call f.json --no-color`, not only before it)."""
+    work in any position (`hickok call f.json --no-color`, not only before it).
+    These are the global options the default-command shim knows about — when adding
+    one, also list it in _GLOBAL_VALUE_OPTS / _GLOBAL_FLAG_OPTS above."""
     op = argparse.ArgumentParser(add_help=False)
     op.add_argument("--theme", metavar="NAME", choices=list(THEMES),
                     help="colour theme: " + " | ".join(THEMES) + " (default: ember)")

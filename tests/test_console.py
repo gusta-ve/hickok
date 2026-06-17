@@ -53,3 +53,17 @@ def test_listen_is_the_default_command():
     assert _with_default_command([]) == []
     assert _with_default_command(["call", "x.json"]) == ["call", "x.json"]
     assert _with_default_command(["--no-color", "-l", "9001"]) == ["--no-color", "listen", "-l", "9001"]
+
+
+def test_default_command_skips_global_options():
+    """A global option before the (implicit) command is skipped over, in both the
+    `--opt value` and `--opt=value` forms, so `listen` lands in the right place."""
+    assert _with_default_command(["--theme", "steel", "-l", "9001"]) == \
+        ["--theme", "steel", "listen", "-l", "9001"]
+    assert _with_default_command(["--theme=steel", "-l", "9001"]) == \
+        ["--theme=steel", "listen", "-l", "9001"]
+    # a global option before an explicit command leaves the command in place
+    assert _with_default_command(["--no-banner", "sql", "-u", "x"]) == \
+        ["--no-banner", "sql", "-u", "x"]
+    # --help / --version short-circuit, untouched
+    assert _with_default_command(["--version"]) == ["--version"]

@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.33]
+
+### Changed
+- **The default-command shim is sturdier.** `hickok -l 9001` infers the `listen`
+  command by skipping any global options first; that skip-list was hardcoded and now
+  also understands the `--theme=value` joined form (not just `--theme value`), with
+  the set of global options kept in one place so a future option can't silently break
+  the inference. Behaviour for existing invocations is unchanged.
+
 ## [0.7.32]
 
 ### Fixed
