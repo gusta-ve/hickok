@@ -33,6 +33,40 @@ def test_tor_auto_detect_or_fails_closed():
         pass
 
 
+def test_retry_is_paced_by_delay(monkeypatch):
+    """A transient failure is retried once, and that retry honours --delay too — it
+    used to fire immediately, breaking a low-and-slow walk on the one request that
+    most looks like a probe."""
+    slept = []
+    monkeypatch.setattr(http.time, "sleep", lambda s: slept.append(s))
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, _n):
+            return b"ok"
+
+    class _FlakyOpener:
+        def __init__(self):
+            self.calls = 0
+
+        def open(self, req, timeout=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise OSError("transient")          # first attempt drops → retry
+            return _Resp()
+
+    net = http.Http(delay=0.5)
+    net._opener = _FlakyOpener()
+    body = net.get("http://example/")
+    assert body == "ok" and net.count == 2          # one retry, then success
+    assert any(s >= 0.4 for s in slept)             # the retry waited out the delay
+
+
 def _tiny_http_server():
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):

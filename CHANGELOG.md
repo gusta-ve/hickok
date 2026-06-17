@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.30]
+
+### Fixed
+- **`--delay` now paces a retried request too.** The throttle was applied once per
+  `get`, so the one automatic retry after a transient timeout/connection drop fired
+  immediately — a sudden burst on exactly the request a slow target was most likely
+  to be watching. The delay is now honoured before every send, retry included, so a
+  low-and-slow (or `--ghost`) walk stays evenly paced.
+
 ## [0.7.29]
 
 ### Changed

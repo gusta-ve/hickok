@@ -163,14 +163,19 @@ class Http:
             return False
 
     # ------------------------------------------------------------- request
-    def get(self, url: str) -> str:
+    def _throttle(self) -> None:
+        """Honour --delay before a send: wait until `delay` has passed since the last
+        request finished. Called before every attempt, so a retry is paced too."""
         if self.delay:
             wait = self._last + self.delay - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
+
+    def get(self, url: str) -> str:
         req = urllib.request.Request(url, headers=self._request_headers())
         body = ""
         for attempt in range(2):                 # one retry on a transient timeout/conn error
+            self._throttle()
             self.count += 1
             try:
                 with self._opener.open(req, timeout=self.timeout) as r:
@@ -184,7 +189,8 @@ class Http:
                 break                             # not transient — don't retry an HTTP error
             except Exception:
                 body = ""                         # timeout / connection error — retry once
-        self._last = time.monotonic()
+            finally:
+                self._last = time.monotonic()     # measure the next gap from this send's end
         return body
 
     def _request_headers(self) -> dict:
