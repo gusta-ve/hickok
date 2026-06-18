@@ -832,7 +832,11 @@ def union_dump(http, oracle, dbms, ncols, refcol, table, cols, db=None):
 # reads whole values (and whole tables, via group_concat) per request, not one bit.
 
 _ERR_MARK = "~"            # the 0x7e byte each payload prefixes the leaked data with
-_ERR_WINDOW = 32          # extractvalue/updatexml truncate around here on real MySQL
+# extractvalue/updatexml cap their error at 32 chars *including* the ~ marker, so each
+# window carries only 31 chars of data — request and step by 31. (At 32 the engine drops
+# the 32nd char every window; the read then sees a short chunk and stops after the first,
+# returning only the head of any value on real MySQL. The non-truncating lab hid this.)
+_ERR_WINDOW = 31
 
 # Per-DBMS error functions; {e} is the marker-prefixed expression to leak. Two forms
 # each, so a filtered one has a fallback. MySQL first (what the lab models); the rest

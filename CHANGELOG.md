@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.37]
+
+### Fixed
+- **Error-based reads now return the whole value on real MySQL, not just the first 31
+  bytes.** `extractvalue`/`updatexml` cap their error at 32 characters *including* the
+  `~` marker — 31 of data — but the oracle requested 32-char windows and stopped when a
+  window came back short of 32. On a real target every window lost its 32nd char, so the
+  first short read ended the walk and only the head of any value came through (a 28-table
+  `group_concat` catalog surfaced as `admin, brand, car…`). The local lab never truncates,
+  so it hid this. Windows are now 31 (marker-inclusive 32); the read steps and stops by 31
+  and reassembles the full value. (A catalog/dump whose `group_concat` exceeds MySQL's
+  1024-byte `group_concat_max_len` still needs the paging follow-up; smaller ones are now
+  whole.)
+
 ## [0.7.36]
 
 ### Fixed
