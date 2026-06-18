@@ -8,7 +8,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-from hickok import http, sqli
+from hickok import cli, http, sqli
 
 
 # ----------------------------------------------------------------- offline
@@ -173,6 +173,44 @@ def test_error_oracle_walks_the_profile_lab_with_ground_truth():
         assert eo.read("SELECT value FROM secrets WHERE name='flag'") == "HCK{the_house_always_collects}"
     finally:
         srv.shutdown()
+
+
+def test_sqli_target_reads_technique_and_dbms_from_handoff():
+    """The wraith handoff's technique/dbms are pulled from the finding, and wraith's
+    'postgresql' is mapped to hickok's 'postgres'."""
+    items = [{
+        "title": "SQL Injection (error-based) in 'id'",
+        "target": "http://127.0.0.1:8080/profile",
+        "technique": "error-based",
+        "dbms": "postgresql",
+    }]
+    assert cli._sqli_target(items) == ("http://127.0.0.1:8080/profile", "id", "error-based", "postgres")
+
+
+def test_sqli_target_is_backward_compatible_without_the_new_fields():
+    """An older wraith finding (no technique/dbms) still yields url+param, with empty
+    hints, so the caller falls back to trying every technique."""
+    items = [{"title": "SQL Injection in 'q'", "target": "http://t/search"}]
+    assert cli._sqli_target(items) == ("http://t/search", "q", "", "")
+
+
+def test_cmd_sql_routes_to_error_based_and_reads_via_query(capsys, monkeypatch, tmp_path):
+    """End to end through cmd_sql: `--technique error` establishes the error channel on
+    the lab sink, and the REPL's `query` reads a ground-truth value through it."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))      # keep cache/dumps out of $HOME
+    srv = _error_lab_server()
+    url = f"http://127.0.0.1:{srv.server_address[1]}/profile?id=1"
+    args = cli.build_parser().parse_args(
+        ["sql", "-u", url, "-p", "id", "--technique", "error", "--no-color", "--no-banner"])
+    feed = iter(['query "SELECT password FROM users WHERE id=1"', "exit"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(feed))
+    try:
+        cli.cmd_sql(args)
+    finally:
+        srv.shutdown()
+    out = capsys.readouterr().out
+    assert "error-based" in out                # routed to the error oracle, not boolean/time
+    assert "s3cr3t!" in out                     # and read the value through the error channel
 
 
 def test_error_calibrate_gives_up_without_an_error_channel():

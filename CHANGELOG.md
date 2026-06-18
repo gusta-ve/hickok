@@ -3,6 +3,21 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.35]
+
+### Added
+- **hickok reads the technique from wraith's handoff and runs the matching oracle
+  first.** A wraith SQLi finding now carries `technique` (error-based / boolean-blind /
+  time-based) and `dbms`; `hickok sql` — including the no-`-u` form that picks up
+  wraith's latest run — uses them to go straight to the right channel instead of
+  always brute-forcing boolean→union→time. An **error-based** point, which used to
+  make hickok try everything and give up ("no injection found") though it was plainly
+  injectable, is now confirmed and walked: the two tools stay consistent (wraith
+  detects it, hickok exploits it). `--technique error` forces the error channel and
+  `auto` now falls back to it when boolean/union don't bite; `--dbms` hints the engine
+  for the error payloads. Backward-compatible — a finding without the new fields falls
+  back to the old try-everything behaviour.
+
 ## [0.7.34]
 
 ### Added

