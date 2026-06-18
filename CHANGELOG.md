@@ -3,6 +3,27 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.36]
+
+### Fixed
+- **A NULL column no longer silently drops its whole row from a UNION/error-based
+  dump.** Cells went into the row concatenation raw, and `concat(a, NULL, b)` is NULL
+  on MySQL (likewise `a || NULL` on SQLite/Postgres and `a + NULL` on MSSQL), which
+  `group_concat`/`string_agg` then skip — so any row with a NULL value vanished from
+  the dump. Each cell is now cast and coalesced to a **quote-free** empty string, so
+  the row survives (a NULL shows empty) and the quote-free WAF-bypass property holds.
+- **Large dumps are no longer silently truncated by `group_concat_max_len`.** The dump
+  concatenated every row into a single `group_concat`, which MySQL caps at 1024 bytes
+  by default (and MSSQL's `string_agg` at 8000 over `varchar(4000)`), so a big table
+  came back cut off with no warning. Dumps now page the table in row blocks — each
+  aggregate stays small — and MSSQL casts to `varchar(max)`. (Catalog enumeration with
+  hundreds of tables can still hit the cap; paging there is a follow-up.)
+- **Time-based calibration now tries the `')` paren context.** It tested only `''`/`'`/`"`,
+  so a sink like `func('<inj>')` — which the boolean/union paths break out of with `')`
+  — was missed and a genuinely injectable point fell through to "no injection found".
+  The quote set now matches `_quote_for`. (Found via a realistic-target review; the
+  small lab never exercises NULLs, big tables, or a wrapped sink.)
+
 ## [0.7.35]
 
 ### Added

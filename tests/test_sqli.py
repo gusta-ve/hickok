@@ -306,3 +306,110 @@ def test_time_based_calibrates_and_answers():
         assert o.ask("1=2") is False       # a false one stays fast
     finally:
         srv.shutdown()
+
+
+def _null_union_server():
+    """A reflecting, UNION-injectable app whose table has a NULL cell — to prove a NULL
+    column doesn't nullify the concatenated row and drop it from the dump."""
+    db = sqlite3.connect(":memory:", check_same_thread=False)
+    db.executescript("CREATE TABLE t (a TEXT, b TEXT);"
+                     "INSERT INTO t VALUES ('x1',NULL),('x2','y2');")
+    lock = threading.Lock()
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            raw = (parse_qs(urlsplit(self.path).query).get("id") or ["x1"])[0]
+            try:
+                with lock:
+                    row = db.execute(f"SELECT a, b FROM t WHERE a = '{raw}'").fetchone()
+            except Exception:
+                row = None
+            body = (f"<h1>{row[0]}</h1><p>{row[1]}</p>" if row else "none").encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_union_dump_keeps_a_row_with_a_null_cell():
+    """A NULL column must not turn the whole concat'd row NULL and drop it from
+    group_concat — both rows come back, the NULL rendering as empty."""
+    srv = _null_union_server()
+    net = http.Http(timeout=5)
+    oracle = sqli.calibrate(net, f"http://127.0.0.1:{srv.server_address[1]}/?id=x1", "id", "x1")
+    setup = sqli.union_setup(net, oracle, "sqlite")
+    rows = sqli.union_dump(net, oracle, "sqlite", *setup, "t", ["a", "b"])
+    srv.shutdown()
+    assert ["x1", ""] in rows and ["x2", "y2"] in rows
+
+
+def test_agg_dump_paginates_and_stays_quote_free():
+    """The dump reads in row blocks (so MySQL's group_concat_max_len can't silently
+    truncate a big table) and reassembles them, with NULL-safe, quote-free cells."""
+    marks = sqli._new_marks()
+    allrows = [[str(i), f"u{i}"] for i in range(120)]      # 3 blocks: 50 + 50 + 20
+
+    captured = []
+
+    def value_fn(q):
+        captured.append(q)
+        off = int(re.search(r"OFFSET (\d+)", q).group(1))
+        block = allrows[off:off + 50]
+        return marks.rowsep.join(marks.colsep.join(r) for r in block)
+
+    out = sqli._agg_dump(value_fn, "mysql", marks, "users", ["id", "name"])
+    assert out == allrows                                  # every row, reassembled across blocks
+    assert len(captured) == 3
+    assert "coalesce" in captured[0] and "'" not in captured[0]    # NULL-safe and quote-free
+    assert "LIMIT 50 OFFSET 0" in captured[0] and "OFFSET 50" in captured[1]
+
+
+def _paren_sleep_server():
+    """Time-blind where the injection sits inside lower('<inj>') — only a ') breakout
+    reaches the conditional sleep (numeric / ' / " miss or error), so the calibrator
+    must try the paren-single context that union/blind already cover."""
+    db = sqlite3.connect(":memory:", check_same_thread=False)
+    db.executescript("CREATE TABLE u (id INTEGER, name TEXT); INSERT INTO u VALUES (1,'1');")
+    db.create_function("sleep", 1, lambda n: time.sleep(min(float(n), 2)) or 0)
+    lock = threading.Lock()
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            raw = (parse_qs(urlsplit(self.path).query).get("id") or ["1"])[0]
+            try:
+                with lock:                              # the breakout must satisfy name=lower('1')
+                    db.execute(f"SELECT id FROM u WHERE name = lower('{raw}')").fetchone()
+            except Exception:
+                pass                                       # a bad breakout just errors -> no sleep
+            body = b"<h1>ok</h1>"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_time_calibrate_tries_the_paren_quote_context():
+    """A sink like func('<inj>') only yields to a ') breakout; the time calibrator must
+    try that context (it used to test only '', ', " and miss it)."""
+    srv = _paren_sleep_server()
+    net = http.Http(timeout=10)
+    o = sqli.time_calibrate(net, f"http://127.0.0.1:{srv.server_address[1]}/?id=1", "id", "1", n=1)
+    try:
+        assert o is not None and o.quote == "')"           # found via the paren-single breakout
+        assert o.ask("1=1") and not o.ask("1=2")
+    finally:
+        srv.shutdown()

