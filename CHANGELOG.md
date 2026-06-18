@@ -3,6 +3,23 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.34]
+
+### Added
+- **Error-based SQL injection oracle.** When a quote leaks the database error but
+  nothing else does — no boolean differential, no reflected column for UNION, no time
+  sink — hickok now reads the database *through the error message itself*, where
+  before it ran boolean→union→time and gave up ("no injection found") on a point that
+  was plainly injectable. An `extractvalue`/`updatexml` payload (MySQL) forces the
+  engine to echo a sub-SELECT's value after a `0x7e` (`~`) marker; hickok parses it
+  back out — reading whole values (and whole tables, via `group_concat`) per request
+  like the UNION path, and reassembling values past the ~32-char error limit by
+  chunking with `substring`. It enumerates databases/tables/columns and dumps rows
+  over the error channel, reusing the catalog SQL the UNION path already speaks (so a
+  quote-stripping WAF is handled the same way). Structured to add Postgres/MSSQL/Oracle
+  error payloads next, chosen by `dbms`. Validated against the wraith lab's `/profile`
+  exfil sink, with the ground-truth values cranked into the tests.
+
 ## [0.7.33]
 
 ### Changed

