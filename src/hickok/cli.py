@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -284,6 +285,9 @@ def cmd_sql(args) -> None:
     if param in q and args.value == "1":         # take the URL's own value unless overridden
         value = q[param][0]
 
+    # Everything for this target lands in one folder; tee the run output to its log.
+    c.log_to(sqlcache.log_path(url, param))
+
     # Build the HTTP sender with the operational options (UA, proxy/Tor, …).
     headers = {}
     for h in (args.header or []):
@@ -371,6 +375,18 @@ def cmd_sql(args) -> None:
     prof = sqli._PROFILES.get(dbms, sqli._PROFILES["sqlite"])
     c.good(f"DBMS: {dbms}")
 
+    # A self-describing target.txt sits next to the log, cache and dumps for this target.
+    technique = ("error-based" if isinstance(oracle, sqli.ErrorOracle)
+                 else "union-based" if union
+                 else "time-based" if isinstance(oracle, sqli.TimeOracle)
+                 else "boolean-blind")
+    sqlcache.write_target(url, param, {
+        "target": url, "parameter": param, "value": value,
+        "technique": technique, "dbms": dbms, "context": getattr(oracle, "context", ""),
+        "started": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "command": "hickok " + " ".join(sys.argv[1:]),
+    })
+
     # Per-target cache: skip anything pulled before, resume after a Ctrl-C.
     oracle.cache = sqlcache.Cache(url, param, fresh=args.fresh)
     if len(oracle.cache):
@@ -392,7 +408,8 @@ def cmd_sql(args) -> None:
                 cols, rows = _walk_dump(oracle, prof, union, args.dump, console=c)
                 rows = list(rows)                                # extract inside the spinner
             _print_table(c, cols, rows)
-            _save_dump(c, oracle, args.dump, cols, rows, args.output)
+            _save_dump(c, oracle, args.dump, cols, rows, args.output,
+                       database=_db_label(oracle, prof, union, None))
         else:
             with c.working("reading the databases", lambda: oracle.count):
                 _overview(c, oracle, prof, union)    # exploration context — REPL only
@@ -521,6 +538,17 @@ def _current_db(oracle, prof, union):
         return None
 
 
+def _db_label(oracle, prof, union, db):
+    """The database name for the dump folder: the scoped db if given, else the current
+    one (read once and cached on the oracle), else 'current'."""
+    if db:
+        return db
+    cur = getattr(oracle, "_curdb", None)
+    if cur is None:
+        cur = oracle._curdb = _current_db(oracle, prof, union) or "current"
+    return cur
+
+
 def _tables_in(c, oracle, prof, union, db):
     """Tables of database `db`; with `db` None it's the current database (and the
     rich common-name fallback applies). A named database uses the scoped catalog."""
@@ -547,10 +575,10 @@ def _columns_in(c, oracle, prof, union, table, db):
     return [x for x in sqli.columns(oracle, prof, table) if x]   # prof already scoped
 
 
-def _do_dump(c, oracle, prof, union, table, out_dir, db=None, save_label=None) -> int:
+def _do_dump(c, oracle, prof, union, table, out_dir, db=None, database=None) -> int:
     """Dump one table end to end: pull every row, print it, save a CSV. Prints and
     saves whatever was pulled even if the walk is interrupted. Returns the count.
-    `db` scopes the read to another database; `save_label` namespaces the CSV."""
+    `db` scopes the read to another database; `database` names the dump folder."""
     cols = _columns_in(c, oracle, prof, union, table, db)
     if isinstance(oracle, sqli.ErrorOracle):
         rowgen = sqli.error_dump(oracle, table, cols, db=db)
@@ -564,7 +592,8 @@ def _do_dump(c, oracle, prof, union, table, out_dir, db=None, save_label=None) -
             rows.append(r)
     finally:
         _print_table(c, cols, rows)
-        _save_dump(c, oracle, f"{save_label}.{table}" if save_label else table, cols, rows, out_dir)
+        _save_dump(c, oracle, table, cols, rows, out_dir,
+                   database=database or _db_label(oracle, prof, union, db))
     return len(rows)
 
 
@@ -589,8 +618,7 @@ def _dump_database(c, oracle, prof, dbms, union, db, out_dir, header=True) -> in
         c.plain("")
         c.good(f"— {label}.{t} —")
         try:
-            total += _do_dump(c, oracle, sprof, union, t, out_dir, db=target,
-                              save_label=(label if target else None))
+            total += _do_dump(c, oracle, sprof, union, t, out_dir, db=target, database=label)
         except KeyboardInterrupt:
             c.warn(f"interrupted on {t} — stopping the sweep (kept what was pulled)")
             break
@@ -622,16 +650,17 @@ def _dump_all(c, oracle, prof, dbms, union, out_dir) -> None:
     c.good(f"dumped {grand} row(s) across {len(dbs)} database(s)")
 
 
-def _save_dump(c, oracle, table, cols, rows, out_dir=None) -> None:
-    """Persist a dump to CSV and tell the user where — so the data survives the
-    session instead of only scrolling past in the terminal."""
+def _save_dump(c, oracle, table, cols, rows, out_dir=None, database=None) -> None:
+    """Persist a dump to CSV (under dump/<database>/) and tell the user where — so the
+    data survives the session instead of only scrolling past in the terminal."""
     if not rows:
         return
-    path = sqlcache.save_dump(oracle.url, oracle.param, table, cols, rows, out_dir)
+    path = sqlcache.save_dump(oracle.url, oracle.param, table, cols, rows,
+                              database=database, out_dir=out_dir)
     if path:
         c.good(f"{len(rows)} row(s) saved → {path}")
     else:
-        c.warn(f"couldn't write the dump to {out_dir or sqlcache.runs_dir()}")
+        c.warn("couldn't write the dump")
 
 
 def _print_table(c, cols, rows) -> None:

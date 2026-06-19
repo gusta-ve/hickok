@@ -3,6 +3,21 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.39]
+
+### Changed
+- **`hickok sql` gathers everything for a target into one folder** instead of scattering
+  dumps and caches across the data dir. Under
+  `~/.local/share/hickok/sql/<host>_<param>_<id>/`:
+  - `target.txt` — the URL, injectable parameter, technique, DBMS, breakout context and
+    the command that was run, so the folder is self-describing;
+  - `log.txt` — the full run output, colour stripped;
+  - `cache.jsonl` — the resume cache (a loose file before);
+  - `dump/<database>/<table>.csv` — dumps organised by database, so a multi-database walk
+    doesn't pile every table into one directory.
+  `-o/--output` still overrides the dump root, keeping the `<database>/<table>.csv` layout
+  inside your engagement folder.
+
 ## [0.7.38]
 
 ### Fixed

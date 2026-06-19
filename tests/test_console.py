@@ -34,6 +34,20 @@ def test_hand_reveal_draws_the_gunslinger(capsys):
     assert out.count("\n") > 40                  # the gunslinger art + the cards
 
 
+def test_console_tees_output_to_a_log_without_colour(tmp_path):
+    """log_to mirrors every emitted line into a run log with the colour stripped, so
+    the log is plain text while the terminal stays coloured."""
+    p = tmp_path / "log.txt"
+    c = Console(color=True, banner=False)               # colour on → there's ANSI to strip
+    c.log_to(p)
+    c.good("found admin")
+    c.info("done")
+    text = p.read_text()
+    assert "found admin" in text and "done" in text
+    assert "\x1b[" not in text                          # colour codes stripped in the log
+    assert "[+]" in text and "[*]" in text              # status markers survive
+
+
 def test_emit_is_thread_safe(capsys):
     """The working-heartbeat redraws from a background thread while the main thread
     emits output; concurrent writers must each land a whole line, never interleave."""

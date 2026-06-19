@@ -103,12 +103,15 @@ hickok(sql)> dump users
   ---+----------+-----------
   1  | admin    | s3cr3t!
   2  | alice    | wonderland
-  [+] 2 row(s) saved → ~/.local/share/hickok/sql/dumps/host_id_users.csv
+  [+] 2 row(s) saved → ~/.local/share/hickok/sql/127.0.0.1_id_…/dump/main/users.csv
 ```
 
-Every `dump` is written to a **CSV** (and the path printed) so it outlives the
-session. Pass `-o DIR` / `--output DIR` to drop it straight into your engagement
-folder instead of the default data dir.
+Everything for a target lands in **one folder** —
+`~/.local/share/hickok/sql/<host>_<param>_<id>/` — holding `target.txt` (what was
+run), `log.txt` (the run, colour-stripped), `cache.jsonl` (the resume cache) and
+`dump/<database>/<table>.csv` (every `dump`, organised by database, path printed).
+Pass `-o DIR` / `--output DIR` to drop the dumps straight into your engagement folder
+(keeping the `<database>/<table>.csv` layout) instead of the default data dir.
 
 **Filtered / WAF'd targets.** String literals go in **quote-free** — a hex
 literal on MySQL, `char()` / `chr()` elsewhere — so a target that strips single

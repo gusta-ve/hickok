@@ -141,17 +141,36 @@ def test_save_dump_writes_a_csv_with_header_and_rows(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     path = sqlcache.save_dump("http://host:80/p.php?id=1", "id", "level1_users",
                               ["id", "username", "password"],
-                              [["1", "Hornoxe", "thatwaseasy"]])
+                              [["1", "Hornoxe", "thatwaseasy"]], database="shop")
     assert path is not None and path.exists() and path.suffix == ".csv"
     assert str(path).startswith(str(tmp_path))           # default lands under XDG data home
+    assert path.parent.name == "shop" and "dump" in path.parts   # dump/<database>/<table>.csv
     rows = list(_csv.reader(path.read_text(encoding="utf-8").splitlines()))
     assert rows[0] == ["id", "username", "password"]
     assert rows[1] == ["1", "Hornoxe", "thatwaseasy"]
 
-    # --output overrides the directory; the file there is just <table>.csv
+    # --output overrides the dump root, keeping <database>/<table>.csv inside it
     out = sqlcache.save_dump("http://host/p.php?id=1", "id", "level1_users",
-                             ["id"], [["1"]], out_dir=tmp_path / "engagement")
-    assert out == tmp_path / "engagement" / "level1_users.csv" and out.exists()
+                             ["id"], [["1"]], database="shop", out_dir=tmp_path / "engagement")
+    assert out == tmp_path / "engagement" / "shop" / "level1_users.csv" and out.exists()
+
+
+def test_target_dir_gathers_log_target_and_cache(tmp_path, monkeypatch):
+    """A target+param has one self-contained folder holding its log, target.txt and the
+    resume cache — instead of dumps and caches scattered across the data dir."""
+    from hickok import sqlcache
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    url, param = "http://127.0.0.1:80/p.php?id=1", "id"
+    d = sqlcache.target_dir(url, param)
+    assert sqlcache.log_path(url, param) == d / "log.txt"
+    sqlcache.write_target(url, param, {"target": url, "technique": "error-based", "dbms": "mysql"})
+    body = (d / "target.txt").read_text()
+    assert "error-based" in body and "mysql" in body
+    cache = sqlcache.Cache(url, param)
+    cache.put("x", 1)
+    cache.close()
+    assert (d / "cache.jsonl").exists()                  # resume cache lives in the same folder
 
 
 def test_print_table_survives_a_ragged_row():

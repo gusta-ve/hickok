@@ -23,6 +23,7 @@ _HSPIN = "⣾⣽⣻⢿⡿⣟⣯⣷"   # a turning block for the live "working" h
 RESET = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")   # strip colour when teeing output to a log file
 
 THEMES = {
     "ember":   {"grad": ((255, 205, 95), (150, 60, 0)), "accent": (255, 185, 70)},   # Deadwood gold
@@ -66,6 +67,16 @@ class Console:
         # thread while the main thread emits real output; both touch stdout and the
         # _spinning flag, so a lock serializes them — no half-written, interleaved line.
         self._lock = threading.Lock()
+        self._logfh = None       # an open file when output is also teed to a run log
+
+    def log_to(self, path) -> None:
+        """Also append every emitted line (colour stripped) to `path` — the run log for
+        a target. Best-effort: a directory/permission problem just disables it."""
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._logfh = open(path, "a", encoding="utf-8")
+        except OSError:
+            self._logfh = None
 
     def trace(self, msg, level: int = 1) -> None:
         """Verbose-only line (e.g. -v shows each SQLi payload). Silent without -v."""
@@ -78,6 +89,12 @@ class Console:
                 sys.stdout.write("\r\033[K")
                 self._spinning = False
             print(text, flush=True)
+            if self._logfh is not None:
+                try:
+                    self._logfh.write(_ANSI.sub("", text) + "\n")
+                    self._logfh.flush()
+                except OSError:
+                    pass
 
     def spinner(self, frame: str, label: str) -> None:
         """Draw one frame of a spinner — a single rewritten line, TTY only,

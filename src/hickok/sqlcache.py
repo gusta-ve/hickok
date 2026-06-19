@@ -47,18 +47,39 @@ def _safe(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", s)[:64] or "x"
 
 
-def save_dump(url: str, param: str, table: str, cols, rows, out_dir=None) -> "Path | None":
-    """Write a dumped table to a CSV (header + rows). Returns the path, or None if
-    it couldn't be written.
+def target_dir(url: str, param: str) -> Path:
+    """The one folder for a target+parameter — everything a `hickok sql` run produces
+    lives here: the resume cache, a run log, target.txt, and dump/<database>/<table>.csv.
+    So a target is self-contained instead of scattered across the data dir."""
+    return runs_dir() / _key(url, param)
 
-    Default location is runs_dir()/dumps with a host/param/table name, so dumps
-    from any target land in one place without colliding. With `out_dir` (the
-    `--output` override) the file is just `<table>.csv` in that directory — the
-    user owns the layout there."""
-    if out_dir:
-        path = Path(out_dir).expanduser() / f"{_safe(table)}.csv"
-    else:
-        path = runs_dir() / "dumps" / f"{_host(url)}_{_safe(param)}_{_safe(table)}.csv"
+
+def log_path(url: str, param: str) -> Path:
+    return target_dir(url, param) / "log.txt"
+
+
+def write_target(url: str, param: str, info: dict) -> "Path | None":
+    """Drop a target.txt that says what was run — URL, injectable parameter, technique,
+    DBMS, the command — so a folder is self-describing when you come back to it."""
+    path = target_dir(url, param) / "target.txt"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        width = max((len(k) for k in info), default=0)
+        with path.open("w", encoding="utf-8") as fh:
+            for k, v in info.items():
+                fh.write(f"{(k + ':').ljust(width + 2)}{v}\n")
+    except OSError:
+        return None
+    return path
+
+
+def save_dump(url: str, param: str, table: str, cols, rows, database=None, out_dir=None) -> "Path | None":
+    """Write a dumped table to CSV (header + rows) under dump/<database>/<table>.csv, so
+    a multi-database walk stays organised by database. Returns the path, or None on a
+    write error. `out_dir` (the `--output` override) replaces the dump/ root with the
+    user's own directory, keeping the <database>/<table>.csv layout inside it."""
+    root = Path(out_dir).expanduser() if out_dir else target_dir(url, param) / "dump"
+    path = root / _safe(database or "current") / f"{_safe(table)}.csv"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8", newline="") as fh:
@@ -74,7 +95,7 @@ class Cache:
     """Maps an SQL expression to its extracted integer value, backed by a file."""
 
     def __init__(self, url: str, param: str, fresh: bool = False):
-        self.path = runs_dir() / f"{_key(url, param)}.jsonl"
+        self.path = target_dir(url, param) / "cache.jsonl"
         self._data: dict[str, int] = {}
         self._fh = None
         if fresh:
