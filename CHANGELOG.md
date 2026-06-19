@@ -3,6 +3,22 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.41]
+
+### Added
+- **UNION through a naive keyword WAF.** A filter that blocks the literal `UNION SELECT`
+  (case-sensitively, or matching across whitespace) used to stop the union probe cold.
+  hickok now spells the keyword with randomised case and an inline comment
+  (`uNIoN/**/sELect`) — valid SQL on every engine, and quote-free literals already carry
+  the data — so a case-sensitive or `UNION\s+SELECT` filter is slipped. Validated against
+  the deadwood range's Gauntlet room.
+- **SQLite cross-database (ATTACH).** hickok treated SQLite as single-database, but a
+  connection can ATTACH others (`archive`), reachable by qualifying `archive.table` and
+  listed by `pragma_database_list`. Cross-db is now enabled for SQLite: `databases` shows
+  the attached ones, and `dump database <name>` / `dump all` reach them (catalog via
+  `<db>.sqlite_master` and `pragma_table_info(t,'<db>')`). Validated against the deadwood
+  Annex room — `archive.secrets` dumps.
+
 ## [0.7.40]
 
 ### Fixed
