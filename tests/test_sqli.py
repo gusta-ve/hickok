@@ -371,6 +371,22 @@ def test_agg_dump_paginates_and_stays_quote_free():
     assert "LIMIT 50 OFFSET 0" in captured[0] and "OFFSET 50" in captured[1]
 
 
+def test_agg_dump_stops_on_an_echoing_target():
+    """A target that ignores OFFSET and echoes the same block must not loop forever (nor
+    silently cap at a magic number) — the dump stops when a block repeats."""
+    marks = sqli._new_marks()
+    block = [[str(i), f"u{i}"] for i in range(sqli._DUMP_BLOCK)]   # a full, always-identical block
+    calls = []
+
+    def value_fn(q):
+        calls.append(q)
+        return marks.rowsep.join(marks.colsep.join(r) for r in block)
+
+    out = sqli._agg_dump(value_fn, "mysql", marks, "t", ["id", "name"])
+    assert out == block                                    # one block kept, not duplicated forever
+    assert len(calls) == 2                                 # block 0, then the repeat -> stop
+
+
 def _paren_sleep_server():
     """Time-blind where the injection sits inside lower('<inj>') — only a ') breakout
     reaches the conditional sleep (numeric / ' / " miss or error), so the calibrator

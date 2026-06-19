@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.38]
+
+### Fixed
+- **Two more silent-truncation caps, same family as the error-window bug** (audit after
+  it — they only bite a bigger/realistic target, never the small lab):
+  - a single UNION value was cast to `varchar(4000)` on MSSQL/Postgres, clipping any
+    value over 4000 chars — now `varchar(max)` / unbounded `varchar`, matching the
+    dump-cell fix;
+  - the block-paginated dump had a hard 10000-row ceiling that cut a larger table with
+    no notice — lifted: a real table ends on its own short block, and an echoing target
+    that ignores `OFFSET` is now detected and stopped, so the read neither loops nor
+    silently caps.
+
 ## [0.7.37]
 
 ### Fixed

