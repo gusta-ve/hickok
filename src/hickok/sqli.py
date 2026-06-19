@@ -782,10 +782,23 @@ def _window(dbms, src, n, off):
     return f"(SELECT * FROM {src} ORDER BY 1 LIMIT {n} OFFSET {off}) _w"
 
 
+def _agg_count(value_fn, dbms, src):
+    """How many rows `src` has, or -1 if it can't be read — used to tell a block that
+    came back short because the table ended from one cut by group_concat_max_len."""
+    try:
+        return int((value_fn(f"SELECT count(*) FROM {src}") or "").strip() or -1)
+    except (ValueError, TypeError):
+        return -1
+
+
 def _agg_dump(value_fn, dbms, marks, table, cols, db=None):
     """Read a table through a value channel (UNION or error-based) and split rows/cols.
-    Paginated in row blocks so a big table isn't silently cut at group_concat_max_len,
-    and every cell NULL-coalesced so a NULL column can't drop its row. Shared by both."""
+
+    Paginated in row blocks, and NULL-coalesced per cell so a NULL can't drop its row.
+    When a block comes back shorter than asked for but the table isn't out of rows yet,
+    its group_concat was cut by group_concat_max_len (the rows were too wide to fit) —
+    the block is halved and the offset re-read, down to a single row, so even a wide
+    table comes out whole. An echoing target (ignores OFFSET) is detected and stops."""
     colsep = _strlit(dbms, marks.colsep)
     parts = []
     for i, c in enumerate(cols):
@@ -794,16 +807,23 @@ def _agg_dump(value_fn, dbms, marks, table, cols, db=None):
         parts.append(_cell(dbms, c))
     row = _ucat(dbms, parts)
     src = _qualify(dbms, db, table)
-    rows, off, prev = [], 0, None
+    total = _agg_count(value_fn, dbms, src)
+    rows, off, block, prev = [], 0, _DUMP_BLOCK, None
     while len(rows) < _DUMP_CAP:
-        data = value_fn(f"SELECT {_uagg(dbms, row, marks.rowsep)} FROM {_window(dbms, src, _DUMP_BLOCK, off)}")
+        data = value_fn(f"SELECT {_uagg(dbms, row, marks.rowsep)} FROM {_window(dbms, src, block, off)}")
         got = [r.split(marks.colsep) for r in data.split(marks.rowsep) if r]
-        if not got or got == prev:        # exhausted, or the target ignores OFFSET (echo) — stop
+        if not got or got == prev:                 # exhausted, or the target echoes — stop
             break
+        if total >= 0 and len(got) < block and len(rows) + len(got) < total and block > 1:
+            block = max(1, block // 2)              # cut by group_concat_max_len — shrink & retry
+            continue
         rows.extend(got)
-        if len(got) < _DUMP_BLOCK:         # a short final block — the table ended
+        prev = got
+        if 0 <= total <= len(rows):                # got every row
             break
-        prev, off = got, off + _DUMP_BLOCK
+        if total < 0 and len(got) < block:         # no count to trust — a short block is the end
+            break
+        off += len(got)
     return rows
 
 

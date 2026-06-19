@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.40]
+
+### Fixed
+- **A wide table no longer comes back truncated at `group_concat_max_len`.** The dump
+  paginated in fixed 50-row blocks, but when rows are wide a single block's `group_concat`
+  still overflows MySQL's 1024-byte cap and comes back cut — so a block (or a small table
+  read in one block) silently lost its tail (the deadwood range reproduced this as
+  employees → 5 of 18). The dump now reads `count(*)` first and, when a block returns
+  fewer rows than asked for while the table still has more, halves the block and re-reads
+  the offset — down to one row if needed — so even a wide table comes out whole. Validated
+  against the deadwood range: employees dumps 18/18, NULLs and unicode intact.
+
 ## [0.7.39]
 
 ### Changed

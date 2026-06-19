@@ -360,15 +360,17 @@ def test_agg_dump_paginates_and_stays_quote_free():
 
     def value_fn(q):
         captured.append(q)
-        off = int(re.search(r"OFFSET (\d+)", q).group(1))
-        block = allrows[off:off + 50]
-        return marks.rowsep.join(marks.colsep.join(r) for r in block)
+        if "count(*)" in q:
+            return str(len(allrows))
+        lim, off = (int(x) for x in re.search(r"LIMIT (\d+) OFFSET (\d+)", q).groups())
+        return marks.rowsep.join(marks.colsep.join(r) for r in allrows[off:off + lim])
 
     out = sqli._agg_dump(value_fn, "mysql", marks, "users", ["id", "name"])
     assert out == allrows                                  # every row, reassembled across blocks
-    assert len(captured) == 3
-    assert "coalesce" in captured[0] and "'" not in captured[0]    # NULL-safe and quote-free
-    assert "LIMIT 50 OFFSET 0" in captured[0] and "OFFSET 50" in captured[1]
+    dump_qs = [q for q in captured if "count(*)" not in q]
+    assert len(dump_qs) == 3                               # 50 + 50 + 20
+    assert "coalesce" in dump_qs[0] and "'" not in dump_qs[0]      # NULL-safe and quote-free
+    assert "LIMIT 50 OFFSET 0" in dump_qs[0] and "OFFSET 50" in dump_qs[1]
 
 
 def test_agg_dump_stops_on_an_echoing_target():
@@ -380,11 +382,31 @@ def test_agg_dump_stops_on_an_echoing_target():
 
     def value_fn(q):
         calls.append(q)
-        return marks.rowsep.join(marks.colsep.join(r) for r in block)
+        if "count(*)" in q:
+            return "100000"                                # claims many rows…
+        return marks.rowsep.join(marks.colsep.join(r) for r in block)   # …but always the same
 
     out = sqli._agg_dump(value_fn, "mysql", marks, "t", ["id", "name"])
     assert out == block                                    # one block kept, not duplicated forever
-    assert len(calls) == 2                                 # block 0, then the repeat -> stop
+    assert len([q for q in calls if "count(*)" not in q]) == 2     # block 0, then the repeat → stop
+
+
+def test_agg_dump_adapts_block_to_a_group_concat_cap():
+    """When a block's group_concat is truncated (rows too wide for the cap) the dump
+    halves the block until it fits and still recovers every row — the deadwood 5/18."""
+    marks = sqli._new_marks()
+    allrows = [[str(i), f"u{i}"] for i in range(18)]
+    cap = 5                                                # at most 5 rows survive a block
+
+    def value_fn(q):
+        if "count(*)" in q:
+            return str(len(allrows))
+        lim, off = (int(x) for x in re.search(r"LIMIT (\d+) OFFSET (\d+)", q).groups())
+        survived = allrows[off:off + lim][:cap]            # the byte cap eats the rest
+        return marks.rowsep.join(marks.colsep.join(r) for r in survived)
+
+    out = sqli._agg_dump(value_fn, "mysql", marks, "employees", ["id", "name"])
+    assert out == allrows                                  # all 18, not 5 — the tail survives
 
 
 def _paren_sleep_server():
