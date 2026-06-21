@@ -154,8 +154,8 @@ class Console:
         if not self.show_banner:
             return
         self._emit()
-        self._glow_art("banner.txt", *self._GLOW)        # the gunslinger, his hat low
-        self._emit()
+        self._glow_art("banner.txt", *self._GLOW)         # the gunslinger's hat & face — a top
+        self._emit()                                      # crop of the full hickok.txt (the reveal)
         self._emit("  " + self._c(BOLD + _fg(self.theme["accent"]), "hickok")
                    + self._c(DIM, "  ·  reverse-shell handler & post-exploitation")
                    + "   " + self._c(DIM, f"v{__version__}"))

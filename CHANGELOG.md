@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.44]
+
+### Changed
+- **The terminal banner now reads as the gunslinger** — his hat pulled low over the
+  eyes. The old banner was a separate, sparse outline that landed as an abstract smudge
+  next to wraith's. It's now a top crop of the real mascot (`hickok.txt`, the same
+  line-art as the README hero and the `hand` reveal), so the banner is recognizable and
+  on-model — without dragging the whole 40-line figure into every startup.
+
 ## [0.7.43]
 
 ### Added
