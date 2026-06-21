@@ -95,16 +95,22 @@ to start digging:
 ```
 hickok(sql)>
   banner              DBMS version              user / db           current user / database
-  databases           list databases            tables              list tables
-  columns <table>     a table's columns         query "<SELECT>"    extract one value
+  databases           list databases            use <database>      switch the working database
+  tables              list tables               columns <table>     a table's columns
+  query "<SELECT>"    extract one value
 
   dump table <name>   one table → CSV
-  dump database       every table in the current database
+  dump database       every table in the working database
   dump database <X>   every table in database X (MySQL / MSSQL / SQLite ATTACH)
   dump all            every reachable database
 
   help / exit         this / quit
 ```
+
+`use <database>` switches the working database where the engine allows it (MySQL /
+MSSQL, and SQLite over ATTACH) — `tables`, `columns` and `dump table` then read from
+it, and the prompt shows which one you're in (`hickok(sql:archive)>`). `use -` goes
+back to the current database.
 
 ```
 hickok(sql)> dump users

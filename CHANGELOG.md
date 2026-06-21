@@ -3,6 +3,23 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.43]
+
+### Added
+- **`use <database>` in the SQL console — walk a second database, not just dump it.**
+  You could cross into another database for a single `dump database <name>`, but
+  `tables`, `columns` and `dump table` always read the current one — so there was no
+  way to *explore* a second database (SQLite's ATTACHed `archive`, or another schema
+  on MySQL / MSSQL). `use <name>` now re-points the whole walk at that database: the
+  prompt shows which one you're in (`hickok(sql:archive)>`), `tables` / `columns` /
+  `dump table` read from it, and `dump database` with no name dumps it. `use -`
+  returns to the current database. Offered only where the engine can cross databases
+  from one injection point (MySQL / MSSQL / SQLite ATTACH); Postgres stays
+  single-database. It reuses the same scoped catalog the cross-database `dump` already
+  walked, so a same-named table in two databases (e.g. `main.secrets` vs
+  `archive.secrets`) reads and caches as two distinct tables. Validated against the
+  deadwood range's Annex room.
+
 ## [0.7.42]
 
 ### Changed

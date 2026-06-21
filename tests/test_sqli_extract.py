@@ -191,6 +191,41 @@ def test_print_table_survives_a_ragged_row():
     assert len(out) == 4                                 # header + rule + 2 rows, no crash
 
 
+def test_repl_use_switches_the_working_database(monkeypatch):
+    """`use <db>` re-points tables/columns/dump at another database (the walk is then
+    issued against it) and the prompt shows it; `use -` returns to the current one."""
+    from hickok import cli, sqli
+
+    seen, prompts = [], []
+    monkeypatch.setattr(cli, "_tables_in",
+                        lambda c, oracle, prof, union, db: seen.append(db) or [])
+
+    class _Spin:
+        def __enter__(self): return self
+        def __exit__(self, *e): return False
+
+    class _C:
+        def plain(self, *a): pass
+        def good(self, *a): pass
+        def warn(self, *a): pass
+        def _c(self, color, s): return s
+        def working(self, *a, **k): return _Spin()
+
+    class _O:
+        count = 0
+        _curdb = "main"            # current db known (as _overview would have cached it)
+
+    lines = iter(["tables", "use archive", "tables", "use -", "tables", "exit"])
+    monkeypatch.setattr("builtins.input",
+                        lambda prompt="": prompts.append(prompt) or next(lines))
+
+    cli._sql_repl(_C(), _O(), sqli._PROFILES["mysql"], "mysql", ("mysql", 3, 0))
+
+    assert seen == [None, "archive", None]            # current → archive → back to current
+    assert "hickok(sql:archive)> " in prompts         # prompt reflects the working db
+    assert "hickok(sql)> " in prompts                 # …and the default
+
+
 def test_strlit_decodes_to_the_original_text():
     """Quote-free literals are just an encoding — they must round-trip to the same
     string the DBMS renders, or output matching would silently miss them."""

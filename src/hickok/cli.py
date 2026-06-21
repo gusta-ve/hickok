@@ -195,13 +195,14 @@ _SQL_HELP = """  walk the database:
     user                    the current database user
     db                      the current database
     databases               list the databases
-    tables                  list the current database's tables
+    use <database>          switch the working database (use - to go back)
+    tables                  list the working database's tables
     columns <table>         a table's columns
     query "<SELECT ...>"    extract one value
 
   dump:
     dump table <name>       one table's rows                  → CSV
-    dump database [<name>]  every table in a database          (current if no name)
+    dump database [<name>]  every table in a database  (the working db if no name)
     dump all                every reachable database
 
   help / exit               this help · quit the console
@@ -450,6 +451,8 @@ def _overview(c, oracle, prof, union) -> None:
         cur = (_walk_scalar(oracle, prof, union, prof["db"]) or "").strip()
     except Exception:
         cur = ""
+    if cur:                         # cache it: the REPL's `use`/dump reuse it (no re-read,
+        oracle._curdb = cur         # so a scoped command's request count stays honest)
     dbs = []
     if union:                       # cheap (one request) — only auto-list when reflected
         try:                        # (error-based can echo a catalog error as "data", so
@@ -675,9 +678,11 @@ def _print_table(c, cols, rows) -> None:
 
 def _sql_repl(c, oracle, prof, dbms, union, out_dir=None) -> None:
     c.plain(_SQL_HELP)
+    active = None                                # working database (None = the current one)
     while True:
         try:
-            line = input("hickok(sql)> ").strip()
+            prompt = f"hickok(sql:{active})> " if active else "hickok(sql)> "
+            line = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             c.plain("")
             break
@@ -685,6 +690,13 @@ def _sql_repl(c, oracle, prof, dbms, union, out_dir=None) -> None:
             continue
         cmd, _, arg = line.partition(" ")
         cmd, arg = cmd.lower(), arg.strip()
+        # Scope the walk to the working database. None = the current one; a selected
+        # db re-scopes the profile (blind path) and is passed explicitly to the
+        # union/error walkers — the same crossing `dump database <name>` already does.
+        if active is None or active == _db_label(oracle, prof, union, None):
+            wprof, target = prof, None
+        else:
+            target, wprof = active, sqli.scoped_profile(prof, dbms, active)
         before = oracle.count
         spin = c.working("working the database", lambda: oracle.count)
         spin.__enter__()                         # heartbeat during the walk (not the prompt)
@@ -707,14 +719,26 @@ def _sql_repl(c, oracle, prof, dbms, union, out_dir=None) -> None:
                         c.plain(f"  {d}")
                 else:                       # catalog filtered — show at least the current one
                     c.good(_walk_scalar(oracle, prof, union, prof["db"]) or "(n/a)")
+            elif cmd == "use":
+                if not arg:
+                    c.warn("usage: use <database>   (use - to return to the default)")
+                elif arg == "-":
+                    active = None
+                    c.good("working database → default (current)")
+                elif not sqli.cross_db_supported(dbms):
+                    c.warn(f"can't switch databases on {dbms} from this injection point "
+                           "— only the current one is reachable")
+                else:
+                    active = arg
+                    c.good(f"working database → {arg}  (tables / columns / dump now read it)")
             elif cmd == "tables":
-                for t in _tables(c, oracle, prof, union):
+                for t in _tables_in(c, oracle, wprof, union, target):
                     c.plain(f"  {t}")
             elif cmd == "columns":
                 if not arg:
                     c.warn("usage: columns <table>")
                     continue
-                for col in _columns(c, oracle, prof, union, arg):
+                for col in _columns_in(c, oracle, wprof, union, arg, target):
                     c.plain(f"  {col}")
             elif cmd == "dump":
                 sub, _, rest = arg.partition(" ")
@@ -724,14 +748,14 @@ def _sql_repl(c, oracle, prof, dbms, union, out_dir=None) -> None:
                 elif sub == "all":
                     _dump_all(c, oracle, prof, dbms, union, out_dir)
                 elif sub == "database":
-                    _dump_database(c, oracle, prof, dbms, union, rest or None, out_dir)
+                    _dump_database(c, oracle, prof, dbms, union, rest or active or None, out_dir)
                 elif sub == "table":
                     if not rest:
                         c.warn("usage: dump table <name>")
                     else:
-                        _do_dump(c, oracle, prof, union, rest, out_dir)
+                        _do_dump(c, oracle, wprof, union, rest, out_dir, db=target)
                 else:
-                    _do_dump(c, oracle, prof, union, arg, out_dir)   # `dump <table>` shorthand
+                    _do_dump(c, oracle, wprof, union, arg, out_dir, db=target)   # `dump <table>` shorthand
             elif cmd == "query":
                 if not arg:
                     c.warn('usage: query "<SELECT returning one value>"')
