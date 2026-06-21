@@ -3,6 +3,21 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.42]
+
+### Changed
+- **README: error-based is now a first-class technique in the docs.** The SQL
+  injection section listed union, boolean-blind and time-based but omitted the
+  error channel added in 0.7.37. The technique bullet list now includes it (with a
+  brief note on `extractvalue`/`updatexml`), `--technique` shows all four choices
+  (`union|blind|time|error`), and the SQL REPL console help block reflects the
+  current `dump table` / `dump database` / `dump all` subcommands.
+- **Minor code polish.** The `sql` subparser help string no longer says
+  "boolean-blind" (it runs all four techniques). `sqli.py` module docstring lists
+  the error channel alongside the other three. `CONTRIBUTING.md` paths corrected to
+  `src/hickok/…` and `sqlcache.py` called out. One surplus blank line removed from
+  `cli.py`.
+
 ## [0.7.41]
 
 ### Added

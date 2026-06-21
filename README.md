@@ -74,12 +74,15 @@ PostgreSQL) and picks the fastest technique automatically:
 - **union** — when the page reflects query output, it reads whole values (and
   whole tables, via `group_concat`) in *one* request. A full walk that takes
   ~1000 blind requests is a handful here.
+- **error-based** — reads through the database's own error message
+  (`extractvalue` / `updatexml`) — no reflection needed, and faster than
+  binary-search.
 - **boolean-blind** — otherwise, it binary-searches each character through a
   TRUE/FALSE oracle (error-forcing when a false page barely changes).
 - **time-based** — when *nothing* leaks (same page, no reflection), it asks
   through a conditional sleep and times the response. Slow, but universal.
 
-Force one with `--technique union|blind|time` (default `auto`, fastest first).
+Force one with `--technique union|blind|time|error` (default `auto`, fastest first).
 
 ```bash
 hickok sql -u 'http://host/db?id=1' -p id   # or just `hickok sql` to read it
@@ -91,10 +94,16 @@ to start digging:
 
 ```
 hickok(sql)>
-  banner            DBMS version             user / db        current user / database
-  databases         list databases           tables           list tables
-  columns <table>   a table's columns        dump <table>     dump its rows
-  query "<SELECT>"  extract one value        help / exit      this / quit
+  banner              DBMS version              user / db           current user / database
+  databases           list databases            tables              list tables
+  columns <table>     a table's columns         query "<SELECT>"    extract one value
+
+  dump table <name>   one table → CSV
+  dump database       every table in the current database
+  dump database <X>   every table in database X (MySQL / MSSQL / SQLite ATTACH)
+  dump all            every reachable database
+
+  help / exit         this / quit
 ```
 
 ```

@@ -17,10 +17,11 @@ for Tor/SOCKS.
 
 ## Ways to contribute
 
-- **Reverse-shell payloads** — one-liners live in `hickok/payloads.py`.
-- **SQL injection** — `hickok/sqli.py` holds the techniques (union / boolean /
-  time), the DBMS profiles and the per-target cache.
-- **The bridge** — `hickok/findings.py` reads a wraith run and flags footholds.
+- **Reverse-shell payloads** — one-liners live in `src/hickok/payloads.py`.
+- **SQL injection** — `src/hickok/sqli.py` holds the techniques (union / error /
+  boolean / time) and the DBMS profiles; `src/hickok/sqlcache.py` owns the
+  per-target folder layout (cache, log, dumps).
+- **The bridge** — `src/hickok/findings.py` reads a wraith run and flags footholds.
 
 ## Ground rules
 

@@ -750,7 +750,6 @@ def _sql_repl(c, oracle, prof, dbms, union, out_dir=None) -> None:
         c.plain(c._c(DIM, f"      {oracle.count - before} requests · {oracle.count} total"))
 
 
-
 def _output_options() -> argparse.ArgumentParser:
     """Cosmetic options every command understands, shared via parents= so they
     work in any position (`hickok call f.json --no-color`, not only before it).
@@ -800,7 +799,7 @@ def build_parser() -> argparse.ArgumentParser:
                                     "catch out: the gunslinger, the dead man's hand, the verdict.")
     sd.set_defaults(func=cmd_showdown)
 
-    sq = sub.add_parser("sql", help="walk a SQL-injectable parameter (boolean-blind)",
+    sq = sub.add_parser("sql", help="walk a SQL-injectable parameter end-to-end",
                         formatter_class=_Help, parents=[common])
     sq.add_argument("-u", "--url", help="target URL (default: wraith's latest SQLi finding)")
     sq.add_argument("-p", "--param", help="injectable parameter (inferred if the URL has just one)")

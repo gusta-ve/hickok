@@ -5,6 +5,8 @@ DBMS, and reads the database out with whichever technique fits:
 
   * union      — output is reflected: read whole values (and whole tables, via
                  group_concat) in a single request.
+  * error      — read through the DB's own error message (extractvalue/updatexml)
+                 — no reflection needed, faster than binary-search.
   * boolean    — only the page changes: binary-search each character through a
                  TRUE/FALSE oracle (error-forcing when a false page barely moves).
   * time-based — nothing leaks: ask through a conditional sleep and time it.
