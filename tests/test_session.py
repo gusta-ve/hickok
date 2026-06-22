@@ -64,6 +64,24 @@ def test_buffered_output_is_capped(monkeypatch):
     assert sess._queue.qsize() == 4            # bounded to the cap, not all 20
 
 
+def test_send_to_a_dropped_peer_marks_dead_instead_of_raising():
+    """A broken pipe on send must not raise (interact forwards keystrokes fire-and-forget,
+    so an unhandled error there spammed tracebacks and spun on the dead socket). It marks
+    the session dead and signals `closed`, so interact can wake and detach."""
+    class _BrokenWriter(_Writer):
+        async def drain(self):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    async def run():
+        sess = ShellSession(7, _Reader([]), _BrokenWriter())
+        await sess.send(b"id\n")               # the peer is gone — must not raise
+        assert sess.alive is False
+        assert sess.closed.is_set()            # interact waits on this to detach
+        await sess.send(b"again\n")            # already dead → no-op, still no raise
+
+    asyncio.run(run())
+
+
 def test_deliberate_close_suppresses_the_died_notice():
     """A kill (close) must not fire the 'died' notice — that's reserved for shells
     that drop on their own."""

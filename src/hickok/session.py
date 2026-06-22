@@ -25,6 +25,7 @@ class ShellSession:
         self.peer = writer.get_extra_info("peername") or ("?", 0)
         self.connected = time.time()
         self.alive = True
+        self.closed = asyncio.Event()  # set when the shell drops, so interact can wake on it
         self._queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._mirror = False
         self._task: asyncio.Task | None = None
@@ -70,6 +71,7 @@ class ShellSession:
             pass
         finally:
             self.alive = False
+            self.closed.set()
             self._close_log()
             if self._on_close and not self._closing:
                 self._on_close(self)
@@ -83,8 +85,18 @@ class ShellSession:
             self._log = None
 
     async def send(self, data: bytes) -> None:
-        self.writer.write(data)
-        await self.writer.drain()
+        """Write to the shell. A dropped peer (broken pipe / connection reset) marks the
+        session dead instead of raising: interact forwards keystrokes fire-and-forget, so
+        an unhandled error here would surface as a task traceback and keep firing at the
+        dead socket — the loop the user hit. Callers see `alive`/`closed` flip instead."""
+        if not self.alive:
+            return
+        try:
+            self.writer.write(data)
+            await self.writer.drain()
+        except (ConnectionError, OSError):
+            self.alive = False
+            self.closed.set()
 
     async def collect(self, timeout: float = 1.0) -> bytes:
         """Drain buffered output for up to `timeout` seconds of silence."""
@@ -109,6 +121,7 @@ class ShellSession:
     def close(self) -> None:
         self._closing = True       # deliberate: the pump shouldn't fire the "died" notice
         self.alive = False
+        self.closed.set()
         self._close_log()
         try:
             self.writer.close()

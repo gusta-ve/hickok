@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.47]
+
+### Fixed
+- **A reverse shell that drops mid-`interact` no longer floods the console with
+  `BrokenPipeError` tracebacks.** `interact` forwards each keystroke to the shell as a
+  fire-and-forget task; when the remote shell died, `send()` raised on the dead socket
+  and — unhandled in that task — asyncio dumped the traceback, again and again as more
+  keys went out, while the interact loop kept blocking (it only woke on Ctrl-]). Now
+  `send()` treats a broken pipe / connection reset as the shell dropping (marks the
+  session dead and signals it, no raise), and `interact` wakes the instant the session
+  closes — restoring the terminal and dropping back to the console — instead of spinning
+  on a dead socket. `cmd` / `upgrade` / `interact` against a session that isn't alive now
+  say so rather than writing into a corpse.
+
 ## [0.7.46]
 
 ### Added

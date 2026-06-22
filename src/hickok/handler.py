@@ -208,6 +208,9 @@ class ShellServer:
         sess = self._resolve(bits[0])
         if not sess:
             return
+        if not sess.alive:
+            self.console.warn(f"session {sess.id} is not alive")
+            return
         await sess.send(bits[1].encode() + b"\n")
         out = await sess.collect(timeout=1.2)
         sys.stdout.buffer.write(out)
@@ -217,6 +220,9 @@ class ShellServer:
     async def _upgrade(self, arg: str) -> None:
         sess = self._resolve(arg)
         if not sess:
+            return
+        if not sess.alive:
+            self.console.warn(f"session {sess.id} is not alive")
             return
         await sess.send(payloads.TTY_UPGRADE.encode() + b"\n")
         try:
@@ -239,6 +245,9 @@ class ShellServer:
         sess = self._resolve(arg)
         if not sess:
             return
+        if not sess.alive:
+            self.console.warn(f"session {sess.id} is not alive — nothing to attach to")
+            return
         if not sys.stdin.isatty():
             self.console.warn("interact needs a real TTY — use 'cmd <id> ...' here")
             return
@@ -252,6 +261,9 @@ class ShellServer:
         detached = asyncio.Event()
 
         def on_stdin() -> None:
+            if not sess.alive:           # shell dropped while attached — stop forwarding keys
+                detached.set()
+                return
             try:
                 data = os.read(fd, 4096)
             except OSError:
@@ -263,6 +275,7 @@ class ShellServer:
             asyncio.ensure_future(sess.send(data))
 
         self.console.info(f"interacting with session {sess.id} — detach: Ctrl-]")
+        waiters: list[asyncio.Task] = []
         try:
             # Raw mode so our terminal stops cooking input: every keystroke
             # (Ctrl-C, tab, arrows) goes straight to the remote shell instead of
@@ -270,9 +283,17 @@ class ShellServer:
             tty.setraw(fd)
             sess.mirror_on()
             loop.add_reader(fd, on_stdin)
-            await detached.wait()
+            # Wake on Ctrl-] / stdin-EOF (detached) *or* the shell dropping (sess.closed),
+            # so a foothold that dies mid-session returns to the console instead of leaving
+            # us blocked while keystrokes spray a dead socket.
+            waiters = [asyncio.ensure_future(detached.wait()),
+                       asyncio.ensure_future(sess.closed.wait())]
+            await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
         finally:
+            for w in waiters:
+                w.cancel()
             loop.remove_reader(fd)
             sess.mirror_off()
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
         self.console.plain("")
+        # A drop while attached already prints "session N died" via the pump's on_close.
