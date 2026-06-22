@@ -73,7 +73,9 @@ PostgreSQL) and picks the fastest technique automatically:
 
 - **union** — when the page reflects query output, it reads whole values (and
   whole tables, via `group_concat`) in *one* request. A full walk that takes
-  ~1000 blind requests is a handful here.
+  ~1000 blind requests is a handful here. It's found even with no TRUE/FALSE tell
+  (a lookup that matches no row), across single / double / parenthesised quote
+  contexts — detected on its own.
 - **error-based** — reads through the database's own error message
   (`extractvalue` / `updatexml`) — no reflection needed, and faster than
   binary-search.

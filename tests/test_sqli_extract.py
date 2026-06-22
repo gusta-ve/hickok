@@ -253,6 +253,39 @@ def test_common_tables_probes_by_name_without_information_schema():
     assert not any("information_schema" in s for s in seen)
 
 
+def test_union_calibrate_finds_a_union_without_a_boolean_oracle():
+    """A reflected target whose base value matches no row has no true/false differential
+    (boolean calibration fails), but UNION still works. union_calibrate finds it by trying
+    quote contexts directly, and fingerprints the DBMS by which quote-free encoding renders
+    the marker — here a double-quoted SQLite lookup (`char()` reflects, `0x..` doesn't)."""
+    import re
+    from urllib.parse import unquote_plus, urlsplit
+
+    NCOLS = 3
+
+    class _Http:                                   # a double-quoted UNION target, no row match
+        count = 0
+
+        def get(self, url):
+            q = urlsplit(url).query
+            payload = unquote_plus(q.split("box=", 1)[-1]) if "box=" in q else ""
+            if '"' not in payload:                 # the string is double-quoted: only " breaks out
+                return "no such box"
+            after = payload.split('"', 1)[1]
+            m = re.search(r"ORDER BY (\d+)", after, re.I)
+            if m:
+                return "no such box" if int(m.group(1)) <= NCOLS else "query error: out of range"
+            decoded = "".join(                     # render any char(...) (SQLite) back to text
+                "".join(chr(int(x)) for x in mm.group(1).split(","))
+                for mm in re.finditer(r"char\(([\d,]+)\)", after))
+            return f"box row: {decoded}" if decoded else "no such box"
+
+    found = sqli.union_calibrate(_Http(), "http://t/app?box=DW", "box", "DW")
+    assert found is not None
+    oracle, dbms, ncols, refcol = found
+    assert dbms == "sqlite" and ncols == NCOLS and oracle.context == "double-quote"
+
+
 def test_error_channel_guesses_tables_and_columns_by_name():
     """When information_schema is unavailable on an error-based target (e.g. a SQLite
     backend modelling MySQL's error channel), enumeration falls back to by-name probing:

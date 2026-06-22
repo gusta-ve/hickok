@@ -3,6 +3,22 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.46]
+
+### Added
+- **UNION injection is detected on its own, without needing a boolean differential
+  first.** hickok only probed for a UNION *after* boolean calibration found an injectable
+  context — so a reflected target with no usable TRUE/FALSE tell (a lookup whose value
+  matches no row, so true and false return the same empty page) came back as "no injection
+  found", even though a UNION read works there. When boolean fails, hickok now probes UNION
+  directly: it tries each quote context (numeric / single / double / parenthesised), counts
+  columns by `ORDER BY`, finds a reflected column, and fingerprints the DBMS by which
+  quote-free encoding renders the marker (a hex literal renders only on MySQL; `char()` /
+  `chr()` identify the rest). Validated against the deadwood range's Strongbox room — a
+  **double-quoted** UNION with no matching base row: `dump secrets` recovers the flag.
+- `union_setup` was split into reusable `_union_columns_count` / `_union_reflect` pieces,
+  shared by the boolean-context path and the new standalone path (no change to the former).
+
 ## [0.7.45]
 
 ### Added

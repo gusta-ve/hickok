@@ -353,8 +353,24 @@ def cmd_sql(args) -> None:
             if union is None:
                 c.info("boolean-blind extraction (a request per bit — slower)")
 
+    # No boolean differential, but the output may still reflect — a lookup whose base
+    # value matches no row gives the same page for true and false, yet UNION works.
+    # Probe for it directly (its own quote/column/DBMS detection), independent of boolean.
+    if oracle is None and want in ("auto", "union"):
+        c.info("no boolean differential — probing for a reflected UNION…")
+        with c.working("probing for a UNION", lambda: net.count):
+            found = sqli.union_calibrate(net, url, param, value, console=c)
+        if found:
+            oracle, dbms, ncols, refcol = found
+            union = (dbms, ncols, refcol)
+            c.good(f"union-based — {ncols} columns, output reflected "
+                   f"({oracle.context} context, {dbms}) — no boolean needed")
+        elif want == "union":
+            c.bad("no usable UNION here (no reflected column in any quote context)")
+            raise SystemExit(1)
+
     if oracle is None and want == "auto" and hint_tech != "error-based":
-        c.info("no boolean differential — trying the error channel…")
+        c.info("no reflected UNION either — trying the error channel…")
         oracle = _try_error()
 
     if oracle is None and want in ("auto", "time"):
