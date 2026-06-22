@@ -131,9 +131,11 @@ Pass `-o DIR` / `--output DIR` to drop the dumps straight into your engagement f
 **Filtered / WAF'd targets.** String literals go in **quote-free** — a hex
 literal on MySQL, `char()` / `chr()` elsewhere — so a target that strips single
 quotes still reflects and dumps where a quoted payload would come back empty.
-And when the catalog (`information_schema`) is blocked, hickok **guesses names**
-instead: common table/column names plus `<db>_<name>` and CMS prefixes (`wp_`,
-`phpbb_`, …), probed by name with no catalog in the payload.
+And when the catalog (`information_schema`) is blocked or absent, hickok **guesses
+names** instead: common table/column names plus `<db>_<name>` and CMS prefixes
+(`wp_`, `phpbb_`, …), probed by name with no catalog in the payload — on the blind
+oracle *and* the error channel (where existence is read from `count(*)` / `count(col)`),
+so `dump <table>` works even with no schema to enumerate.
 
 Boolean-blind is slow by nature (each character is binary-searched over many
 requests) — it turns a live heartbeat with the running count as it goes, and

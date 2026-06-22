@@ -3,6 +3,27 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.45]
+
+### Added
+- **Error-based enumeration falls back to by-name guessing when `information_schema`
+  is unavailable.** On an error-based target where the catalog can't be read — filtered,
+  or simply absent (a backend that models the MySQL error channel without an
+  `information_schema`) — `tables`, `columns`, `dump <table>` and `dump all` came back
+  empty with no explanation, and the read needed a hand-written `query`. They now fall
+  back to probing common table/column names through the error channel itself
+  (`count(*)` / `count(col)` leaks a number if the object exists, errors silently if
+  not) — the same by-name path the blind oracle already had — so someone who doesn't
+  hand-write SQL can still `dump <table>` (or `dump all`) and get the data. When even
+  the guess finds nothing, hickok now says *why* and points at `dump <table>` / `query`
+  with a known name, instead of returning a silent empty result. Validated against the
+  deadwood range's Ledger room: `dump secrets` recovers the table (and the flag).
+- The built-in name wordlists grew to cover more ordinary schemas — business,
+  e-commerce, security/secrets, logging and framework tables (Django, ASP.NET, Drupal,
+  more WordPress/phpBB), plus columns like `uuid`, `user_id`, `password_hash`,
+  `api_key`, `created_at`/`updated_at`. Guessing only runs on the catalog-blocked
+  fallback, so it's pure coverage — no extra requests on a normal walk.
+
 ## [0.7.44]
 
 ### Changed

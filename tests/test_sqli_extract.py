@@ -253,6 +253,34 @@ def test_common_tables_probes_by_name_without_information_schema():
     assert not any("information_schema" in s for s in seen)
 
 
+def test_error_channel_guesses_tables_and_columns_by_name():
+    """When information_schema is unavailable on an error-based target (e.g. a SQLite
+    backend modelling MySQL's error channel), enumeration falls back to by-name probing:
+    count(*)/count(col) leaks a number if the object exists, errors (empty) if not."""
+    import re
+
+    world = {"secrets": {"label", "value", "id"}}        # the only table that 'exists'
+
+    class _EO:                                            # a stand-in error oracle
+        dbms = "mysql"
+
+        def read(self, expr):
+            m = re.search(r"count\(\*\) FROM `?(\w+)`?", expr)
+            if m:                                        # table-existence probe
+                return "1" if m.group(1) in world else ""
+            m = re.search(r"count\((\w+)\) FROM `?(\w+)`?", expr)
+            if m:                                        # column-existence probe
+                col, tab = m.group(1), m.group(2)
+                return "1" if tab in world and col in world[tab] else ""
+            return ""
+
+    eo = _EO()
+    assert list(sqli.error_common_tables(eo)) == ["secrets"]     # only the real table
+    cols = list(sqli.error_common_columns(eo, "secrets"))
+    assert "value" in cols and "label" in cols and "id" in cols  # the flag column included
+    assert "password" not in cols                                # a name that isn't there
+
+
 def test_common_tables_tries_db_prefixed_and_more_names():
     """With the database name known, the guesser also probes `<db>_<name>` — and
     the plain common list is broad enough to cover ordinary names too."""
